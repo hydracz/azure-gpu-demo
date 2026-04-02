@@ -102,13 +102,12 @@ ensure_gpu_operator_chart_deps() {
 
 ensure_gpu_operator_controller() {
   if kubectl -n "${GPU_OPERATOR_NAMESPACE}" get deploy/gpu-operator >/dev/null 2>&1; then
-    log "GPU Operator controller already exists; skipping Helm install/upgrade"
-    kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
-    return
+    log "Upgrading NVIDIA GPU Operator from ${GPU_OPERATOR_CHART_DIR}"
+  else
+    log "Installing NVIDIA GPU Operator from ${GPU_OPERATOR_CHART_DIR}"
   fi
-
-  log "Installing NVIDIA GPU Operator from ${GPU_OPERATOR_CHART_DIR}"
   log "  driver.enabled=false (will use NVIDIADriver CR instead)"
+  log "  dcgmExporter.serviceMonitor.enabled=true"
 
   ensure_gpu_operator_chart_deps
 
@@ -122,6 +121,7 @@ ensure_gpu_operator_controller() {
     --set toolkit.enabled=true \
     --set devicePlugin.enabled=true \
     --set dcgmExporter.enabled=true \
+    --set dcgmExporter.serviceMonitor.enabled=true \
     --set "daemonsets.tolerations[0].key=nvidia.com/gpu" \
     --set "daemonsets.tolerations[0].operator=Exists" \
     --set "daemonsets.tolerations[0].effect=NoSchedule" \

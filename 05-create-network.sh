@@ -17,69 +17,95 @@ load_env
 need_cmd az
 need_cmd python3
 
-require_env \
-  AZ_SUBSCRIPTION_ID LOCATION NETWORK_RESOURCE_GROUP \
-  VNET_NAME VNET_ADDRESS_PREFIX AKS_SUBNET_NAME AKS_SUBNET_ADDRESS_PREFIX
+if [[ -n "${VNET_SUBNET_ID:-}" ]]; then
+  require_env AZ_SUBSCRIPTION_ID LOCATION VNET_SUBNET_ID
+else
+  require_env \
+    AZ_SUBSCRIPTION_ID LOCATION NETWORK_RESOURCE_GROUP \
+    VNET_NAME VNET_ADDRESS_PREFIX AKS_SUBNET_NAME AKS_SUBNET_ADDRESS_PREFIX
+fi
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 
 log "Registering Microsoft.Network resource provider"
 az provider register --namespace Microsoft.Network --wait --only-show-errors >/dev/null
 
-log "Ensuring network resource group ${NETWORK_RESOURCE_GROUP}"
-az group create \
-  --name "${NETWORK_RESOURCE_GROUP}" \
-  --location "${LOCATION}" \
-  --only-show-errors \
-  >/dev/null
-
-if ! az network vnet show \
-    --resource-group "${NETWORK_RESOURCE_GROUP}" \
-    --name "${VNET_NAME}" \
-    --only-show-errors >/dev/null 2>&1; then
-  log "Creating VNet ${VNET_NAME} with subnet ${AKS_SUBNET_NAME}"
-  az network vnet create \
-    --resource-group "${NETWORK_RESOURCE_GROUP}" \
-    --name "${VNET_NAME}" \
-    --location "${LOCATION}" \
-    --address-prefixes "${VNET_ADDRESS_PREFIX}" \
-    --subnet-name "${AKS_SUBNET_NAME}" \
-    --subnet-prefixes "${AKS_SUBNET_ADDRESS_PREFIX}" \
-    --only-show-errors \
-    >/dev/null
+if [[ -n "${VNET_SUBNET_ID:-}" ]] && az network vnet subnet show --ids "${VNET_SUBNET_ID}" --only-show-errors >/dev/null 2>&1; then
+  log "Using existing subnet from VNET_SUBNET_ID ${VNET_SUBNET_ID}"
+  subnet_id="${VNET_SUBNET_ID}"
+  vnet_id="${subnet_id%/subnets/*}"
+  NETWORK_RESOURCE_GROUP="$(az network vnet show --ids "${vnet_id}" --query resourceGroup -o tsv --only-show-errors)"
+  VNET_NAME="$(az network vnet show --ids "${vnet_id}" --query name -o tsv --only-show-errors)"
+  VNET_ADDRESS_PREFIX="$(az network vnet show --ids "${vnet_id}" --query 'addressSpace.addressPrefixes[0]' -o tsv --only-show-errors)"
+  AKS_SUBNET_NAME="$(az network vnet subnet show --ids "${subnet_id}" --query name -o tsv --only-show-errors)"
+  AKS_SUBNET_ADDRESS_PREFIX="$(az network vnet subnet show --ids "${subnet_id}" --query 'addressPrefix' -o tsv --only-show-errors)"
 else
-  log "VNet ${VNET_NAME} already exists"
-  if ! az network vnet subnet show \
+  if [[ -n "${VNET_SUBNET_ID:-}" ]]; then
+    warn "Configured VNET_SUBNET_ID ${VNET_SUBNET_ID} was not found; falling back to NETWORK_RESOURCE_GROUP/VNET_NAME/AKS_SUBNET_NAME settings"
+  fi
+
+  if [[ "$(az group exists --name "${NETWORK_RESOURCE_GROUP}" --only-show-errors)" == "true" ]]; then
+    log "Network resource group ${NETWORK_RESOURCE_GROUP} already exists"
+  else
+    log "Creating network resource group ${NETWORK_RESOURCE_GROUP}"
+    az group create \
+      --name "${NETWORK_RESOURCE_GROUP}" \
+      --location "${LOCATION}" \
+      --only-show-errors \
+      >/dev/null
+  fi
+
+  if ! az network vnet show \
       --resource-group "${NETWORK_RESOURCE_GROUP}" \
-      --vnet-name "${VNET_NAME}" \
-      --name "${AKS_SUBNET_NAME}" \
+      --name "${VNET_NAME}" \
       --only-show-errors >/dev/null 2>&1; then
-    log "Creating subnet ${AKS_SUBNET_NAME}"
-    az network vnet subnet create \
+    log "Creating VNet ${VNET_NAME} with subnet ${AKS_SUBNET_NAME}"
+    az network vnet create \
       --resource-group "${NETWORK_RESOURCE_GROUP}" \
-      --vnet-name "${VNET_NAME}" \
-      --name "${AKS_SUBNET_NAME}" \
-      --address-prefixes "${AKS_SUBNET_ADDRESS_PREFIX}" \
+      --name "${VNET_NAME}" \
+      --location "${LOCATION}" \
+      --address-prefixes "${VNET_ADDRESS_PREFIX}" \
+      --subnet-name "${AKS_SUBNET_NAME}" \
+      --subnet-prefixes "${AKS_SUBNET_ADDRESS_PREFIX}" \
       --only-show-errors \
       >/dev/null
   else
-    log "Subnet ${AKS_SUBNET_NAME} already exists"
+    log "VNet ${VNET_NAME} already exists"
+    if ! az network vnet subnet show \
+        --resource-group "${NETWORK_RESOURCE_GROUP}" \
+        --vnet-name "${VNET_NAME}" \
+        --name "${AKS_SUBNET_NAME}" \
+        --only-show-errors >/dev/null 2>&1; then
+      log "Creating subnet ${AKS_SUBNET_NAME}"
+      az network vnet subnet create \
+        --resource-group "${NETWORK_RESOURCE_GROUP}" \
+        --vnet-name "${VNET_NAME}" \
+        --name "${AKS_SUBNET_NAME}" \
+        --address-prefixes "${AKS_SUBNET_ADDRESS_PREFIX}" \
+        --only-show-errors \
+        >/dev/null
+    else
+      log "Subnet ${AKS_SUBNET_NAME} already exists"
+    fi
   fi
-fi
 
-vnet_id="$(az network vnet show \
-  --resource-group "${NETWORK_RESOURCE_GROUP}" \
-  --name "${VNET_NAME}" \
-  --query id \
-  -o tsv \
-  --only-show-errors)"
-subnet_id="$(az network vnet subnet show \
-  --resource-group "${NETWORK_RESOURCE_GROUP}" \
-  --vnet-name "${VNET_NAME}" \
-  --name "${AKS_SUBNET_NAME}" \
-  --query id \
-  -o tsv \
-  --only-show-errors)"
+  vnet_id="$(az network vnet show \
+    --resource-group "${NETWORK_RESOURCE_GROUP}" \
+    --name "${VNET_NAME}" \
+    --query id \
+    -o tsv \
+    --only-show-errors)"
+  subnet_id="$(az network vnet subnet show \
+    --resource-group "${NETWORK_RESOURCE_GROUP}" \
+    --vnet-name "${VNET_NAME}" \
+    --name "${AKS_SUBNET_NAME}" \
+    --query id \
+    -o tsv \
+    --only-show-errors)"
+
+  VNET_ADDRESS_PREFIX="$(az network vnet show --ids "${vnet_id}" --query 'addressSpace.addressPrefixes[0]' -o tsv --only-show-errors)"
+  AKS_SUBNET_ADDRESS_PREFIX="$(az network vnet subnet show --ids "${subnet_id}" --query 'addressPrefix' -o tsv --only-show-errors)"
+fi
 
 write_generated_env NETWORK_RESOURCE_GROUP "${NETWORK_RESOURCE_GROUP}"
 write_generated_env VNET_NAME "${VNET_NAME}"

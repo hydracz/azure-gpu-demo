@@ -105,6 +105,8 @@ cp aks.env.sample aks.env
 ./05-create-network.sh
 ```
 
+`05-create-network.sh` 现在也是幂等的：如果网络 Resource Group、VNet 或 Subnet 已存在，它会直接复用；如果已经在 `aks.env` 中提供了 `VNET_SUBNET_ID`，脚本会直接读取现有 subnet 和父级 VNet 信息并回写到 `.generated.env`。
+
 ### 2. 创建 AKS 集群
 
 ```bash
@@ -193,7 +195,7 @@ DELETE_NETWORK_RESOURCE_GROUP=true ./06-destroy-network.sh  # 删除网络
 
 ### GPU 节点本地 NVMe 磁盘
 
-`AKSNodeClass/gpu` 现在增加了 `osDiskSizeGB: 1024`，并在两个 GPU `NodePool` 上增加 `karpenter.azure.com/sku-storage-ephemeralos-maxsize > 1023` 的约束。这样会优先筛选支持至少 1 TiB ephemeral OS disk 的 SKU，让 AKS 尽可能把节点 OS 盘落到本地 NVMe 上，而不是回退到 managed disk。
+`AKSNodeClass/gpu` 现在增加了 `osDiskSizeGB: 1024`。AKS 在目标机型支持且本地盘容量足够时，会优先使用 ephemeral OS disk；如果条件不满足，则允许回退到 managed disk。
 
 ## 关键实现细节
 

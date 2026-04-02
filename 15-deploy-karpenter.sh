@@ -21,9 +21,13 @@ ensure_tooling
 GPU_NODE_IMAGE_FAMILY="${GPU_NODE_IMAGE_FAMILY:-Ubuntu2404}"
 GPU_OS_DISK_SIZE_GB="${GPU_OS_DISK_SIZE_GB:-1024}"
 GPU_ZONES="${GPU_ZONES:-${LOCATION}-1}"
+ROLE_ASSIGNMENT_MAX_RETRIES="${ROLE_ASSIGNMENT_MAX_RETRIES:-6}"
+ROLE_ASSIGNMENT_RETRY_SECONDS="${ROLE_ASSIGNMENT_RETRY_SECONDS:-10}"
 
 [[ "${GPU_OS_DISK_SIZE_GB}" =~ ^[0-9]+$ ]] || fail "GPU_OS_DISK_SIZE_GB must be an integer, got: ${GPU_OS_DISK_SIZE_GB}"
 (( GPU_OS_DISK_SIZE_GB >= 30 )) || fail "GPU_OS_DISK_SIZE_GB must be at least 30 GB, got: ${GPU_OS_DISK_SIZE_GB}"
+[[ "${ROLE_ASSIGNMENT_MAX_RETRIES}" =~ ^[0-9]+$ ]] || fail "ROLE_ASSIGNMENT_MAX_RETRIES must be an integer, got: ${ROLE_ASSIGNMENT_MAX_RETRIES}"
+[[ "${ROLE_ASSIGNMENT_RETRY_SECONDS}" =~ ^[0-9]+$ ]] || fail "ROLE_ASSIGNMENT_RETRY_SECONDS must be an integer, got: ${ROLE_ASSIGNMENT_RETRY_SECONDS}"
 
 # Helm Chart 位于项目根目录 charts/
 KARPENTER_CHART_DIR="${ROOT_DIR}/charts"
@@ -96,6 +100,8 @@ vnet_subnet_id="$(az vmss show \
   --only-show-errors)"
 [[ -n "${vnet_subnet_id}" ]] || fail "Unable to determine vnet subnet id from VMSS ${system_vmss_name}"
 [[ "${vnet_subnet_id}" == "${VNET_SUBNET_ID}" ]] || fail "AKS is using subnet ${vnet_subnet_id}, but configured VNET_SUBNET_ID is ${VNET_SUBNET_ID}"
+vnet_id="$(az network vnet show --ids "${vnet_subnet_id%/subnets/*}" --query id -o tsv --only-show-errors)"
+[[ -n "${vnet_id}" ]] || fail "Unable to determine parent vnet id from subnet ${vnet_subnet_id}"
 
 ssh_public_key="$(python3 - <<'PY' "${aks_json}"
 import json
@@ -173,7 +179,6 @@ for zone in zones:
     print(f"            - {zone}")
 PY
 )"
-ephemeral_os_disk_min_size_gb="$((GPU_OS_DISK_SIZE_GB - 1))"
 
 tmp_values_file="$(mktemp)"
 cleanup() {
@@ -221,34 +226,74 @@ assign_role_if_missing() {
   local role="$1"
   local scope="$2"
   local principal="$3"
+  local existing attempt create_output scope_name
 
-  existing="$(az role assignment list \
-    --assignee "${principal}" \
-    --role "${role}" \
-    --scope "${scope}" \
-    --query "length(@)" \
-    -o tsv \
-    --only-show-errors 2>/dev/null || echo 0)"
+  scope_name="$(basename "${scope}")"
 
-  if [[ "${existing}" == "0" ]]; then
-    log "Assigning role '${role}' on scope $(basename "${scope}")"
-    az role assignment create \
+  role_assignment_exists() {
+    local current_role="$1"
+    local current_scope="$2"
+    local current_principal="$3"
+
+    az role assignment list \
+      --assignee "${current_principal}" \
+      --role "${current_role}" \
+      --scope "${current_scope}" \
+      --query "length(@)" \
+      -o tsv \
+      --only-show-errors 2>/dev/null
+  }
+
+  existing="$(role_assignment_exists "${role}" "${scope}" "${principal}" || echo 0)"
+
+  if [[ "${existing}" != "0" ]]; then
+    log "Role '${role}' already assigned on ${scope_name}"
+    return 0
+  fi
+
+  for attempt in $(seq 1 "${ROLE_ASSIGNMENT_MAX_RETRIES}"); do
+    log "Ensuring role '${role}' on ${scope_name} (attempt ${attempt}/${ROLE_ASSIGNMENT_MAX_RETRIES})"
+
+    if create_output="$(az role assignment create \
       --assignee-object-id "${identity_principal_id}" \
       --assignee-principal-type ServicePrincipal \
       --role "${role}" \
       --scope "${scope}" \
       --only-show-errors \
-      >/dev/null
-  else
-    log "Role '${role}' already assigned on $(basename "${scope}")"
-  fi
+      -o none 2>&1)"; then
+      log "Assigned role '${role}' on ${scope_name}"
+      return 0
+    fi
+
+    if [[ "${create_output}" == *"RoleAssignmentExists"* ]]; then
+      log "Role '${role}' already assigned on ${scope_name}"
+      return 0
+    fi
+
+    existing="$(role_assignment_exists "${role}" "${scope}" "${principal}" || echo 0)"
+    if [[ "${existing}" != "0" ]]; then
+      log "Role '${role}' already assigned on ${scope_name}"
+      return 0
+    fi
+
+    if [[ "${create_output}" == *"PrincipalNotFound"* || "${create_output}" == *"does not exist in the directory"* || "${create_output}" == *"could not be found"* || "${create_output}" == *"Insufficient privileges to complete the operation"* ]]; then
+      if (( attempt < ROLE_ASSIGNMENT_MAX_RETRIES )); then
+        warn "Role assignment for '${role}' on ${scope_name} is waiting for directory propagation; retrying in ${ROLE_ASSIGNMENT_RETRY_SECONDS}s"
+        sleep "${ROLE_ASSIGNMENT_RETRY_SECONDS}"
+        continue
+      fi
+    fi
+
+    fail "Failed to assign role '${role}' on ${scope_name}: ${create_output}"
+  done
 }
 
 # Karpenter 需要在 node resource group 创建/删除 VM、VMSS、NIC 等
 assign_role_if_missing "Virtual Machine Contributor"     "${node_rg_id}" "${identity_principal_id}"
 assign_role_if_missing "Network Contributor"             "${node_rg_id}" "${identity_principal_id}"
 assign_role_if_missing "Managed Identity Operator"       "${node_rg_id}" "${identity_principal_id}"
-# 自定义 VNet/Subnet 场景下, 还需要对 subnet 本身授予 join / IP 管理权限
+# 自定义 VNet/Subnet 场景下, Karpenter 既要读取父级 VNet, 也需要在 subnet 上做 join / IP 管理
+assign_role_if_missing "Reader"                          "${vnet_id}" "${identity_principal_id}"
 assign_role_if_missing "Network Contributor"             "${vnet_subnet_id}" "${identity_principal_id}"
 
 # Karpenter 需要把 AKS agentpool 的 UAMI 绑定到新建 VM 上
@@ -289,7 +334,16 @@ if ! az identity federated-credential show \
     --only-show-errors \
     >/dev/null
 else
-  log "Federated credential ${fed_cred_name} already exists"
+  log "Updating federated credential ${fed_cred_name} to match current AKS OIDC issuer"
+  az identity federated-credential update \
+    --name "${fed_cred_name}" \
+    --identity-name "${KARPENTER_IDENTITY_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --issuer "${AKS_OIDC_ISSUER}" \
+    --subject "${subject}" \
+    --audiences "api://AzureADTokenExchange" \
+    --only-show-errors \
+    >/dev/null
 fi
 
 # ── 4. Helm 安装 Karpenter ────────────────────────────────────────
@@ -307,6 +361,7 @@ helm upgrade --install karpenter \
   --namespace "${KARPENTER_NAMESPACE}" \
   --reset-values \
   -f "${tmp_values_file}" \
+  --set "serviceMonitor.enabled=true" \
   --set "controller.image.repository=${KARPENTER_IMAGE_REPO}" \
   --set "controller.image.tag=${KARPENTER_IMAGE_TAG}" \
   --set "controller.image.digest=" \
@@ -369,9 +424,6 @@ ${gpu_zones_yaml}
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
-        - key: karpenter.azure.com/sku-storage-ephemeralos-maxsize
-          operator: Gt
-          values: ["${ephemeral_os_disk_min_size_gb}"]
         - key: node.kubernetes.io/instance-type
           operator: In
           values: ["${GPU_SKU_NAME}"]
@@ -416,9 +468,6 @@ ${gpu_zones_yaml}
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
-        - key: karpenter.azure.com/sku-storage-ephemeralos-maxsize
-          operator: Gt
-          values: ["${ephemeral_os_disk_min_size_gb}"]
         - key: node.kubernetes.io/instance-type
           operator: In
           values: ["${GPU_SKU_NAME}"]
@@ -439,7 +488,7 @@ log "Karpenter GPU deployment completed"
 log "  Controller image : ${KARPENTER_IMAGE_REPO}:${KARPENTER_IMAGE_TAG}"
 log "  GPU SKU          : ${GPU_SKU_NAME}"
 log "  Custom subnet    : ${vnet_subnet_id}"
-log "  GPU OS disk size : ${GPU_OS_DISK_SIZE_GB} GiB (prefer ephemeral NVMe)"
+log "  GPU OS disk size : ${GPU_OS_DISK_SIZE_GB} GiB"
 log "  installGPUDrivers: ${INSTALL_GPU_DRIVERS}"
 log "  NodePools        : gpu-spot-pool (weight=100), gpu-ondemand-pool (weight=10)"
 log "  AKSNodeClass     : gpu (${GPU_NODE_IMAGE_FAMILY}, subnet=${vnet_subnet_id}, osDisk=${GPU_OS_DISK_SIZE_GB}GiB, installGPUDrivers=${INSTALL_GPU_DRIVERS})"

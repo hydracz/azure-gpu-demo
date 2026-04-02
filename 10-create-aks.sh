@@ -18,6 +18,11 @@ ensure_tooling
 
 : "${LOG_ANALYTICS_WORKSPACE_NAME:=log-${CLUSTER_NAME:-aks}-logs}"
 : "${AKS_DIAGNOSTIC_SETTING_NAME:=aks-all-logs}"
+: "${AKS_CREATE_RECOVERY_CHECKS:=12}"
+: "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS:=10}"
+
+[[ "${AKS_CREATE_RECOVERY_CHECKS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_CHECKS must be an integer, got: ${AKS_CREATE_RECOVERY_CHECKS}"
+[[ "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_INTERVAL_SECONDS must be an integer, got: ${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
 
 require_env \
   AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
@@ -148,10 +153,10 @@ if ! az network vnet subnet show --ids "${VNET_SUBNET_ID}" --only-show-errors >/
   fail "Custom subnet ${VNET_SUBNET_ID} not found. Run 05-create-network.sh first or set VNET_SUBNET_ID to an existing subnet."
 fi
 
-# ── AKS 集群 (不开启 cluster-autoscaler) ─────────────────────────
-if ! aks_exists; then
-  log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${VNET_SUBNET_ID}"
-  az aks create \
+create_aks_cluster() {
+  local create_output cluster_state attempt
+
+  if create_output="$(az aks create \
     --resource-group "${RESOURCE_GROUP}" \
     --name "${CLUSTER_NAME}" \
     --location "${LOCATION}" \
@@ -173,7 +178,44 @@ if ! aks_exists; then
     --grafana-resource-id "${grafana_id}" \
     --generate-ssh-keys \
     --only-show-errors \
-    >/dev/null
+    -o none 2>&1)"; then
+    return 0
+  fi
+
+  if [[ "${create_output}" == *"RoleAssignmentExists"* ]]; then
+    warn "az aks create reported RoleAssignmentExists; checking whether cluster ${CLUSTER_NAME} is already being created"
+
+    for attempt in $(seq 1 "${AKS_CREATE_RECOVERY_CHECKS}"); do
+      if aks_exists; then
+        cluster_state="$(az aks show \
+          --resource-group "${RESOURCE_GROUP}" \
+          --name "${CLUSTER_NAME}" \
+          --query provisioningState \
+          -o tsv \
+          --only-show-errors 2>/dev/null || true)"
+
+        case "${cluster_state}" in
+          Succeeded|Creating|Updating)
+            warn "AKS cluster ${CLUSTER_NAME} exists with provisioningState=${cluster_state}; continuing despite RoleAssignmentExists from az aks create"
+            return 0
+            ;;
+          Failed|Canceled)
+            fail "AKS cluster ${CLUSTER_NAME} exists but provisioningState=${cluster_state} after az aks create reported RoleAssignmentExists"
+            ;;
+        esac
+      fi
+
+      sleep "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
+    done
+  fi
+
+  fail "az aks create failed: ${create_output}"
+}
+
+# ── AKS 集群 (不开启 cluster-autoscaler) ─────────────────────────
+if ! aks_exists; then
+  log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${VNET_SUBNET_ID}"
+  create_aks_cluster
 else
   log "AKS cluster ${CLUSTER_NAME} already exists"
 fi
