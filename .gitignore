@@ -1,8 +1,8 @@
 .generated.env
 aks.env
-charts/karpenter/
-charts/karpenter-crd/
-charts/gpu-operator/
+#charts/karpenter/
+#charts/karpenter-crd/
+#charts/gpu-operator/
 validation-artifacts/
 *.swp
 *.swo
