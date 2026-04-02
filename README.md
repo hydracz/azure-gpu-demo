@@ -6,8 +6,7 @@
 
 - GPU 资源池保留两套: `spot` (优先) + `on-demand` (兜底)
 - VNet / Subnet 支持预创建，也可通过脚本模拟创建
-- AKS 网络采用 `Azure CNI underlay`，Pod 直接使用 Subnet IP
-- 每节点 `maxPods` 控制为 `15`，避免 underlay 模式下 subnet IP 过度消耗
+- AKS 网络采用 `Azure CNI overlay + Cilium`，节点 NIC 使用自定义 subnet，Pod 使用 overlay 地址空间
 - GPU SKU: `Standard_NC128lds_xl_RTXPRO6000BSE_v6` (RTX PRO 6000 BSE)
 
 ## 目录结构
@@ -88,12 +87,11 @@ cp aks.env.sample aks.env
 | `NETWORK_RESOURCE_GROUP` | 网络资源组 | `rg-aks-karpenter-gpu-network` |
 | `GPU_SKU_NAME` | GPU VM SKU | `Standard_NC128lds_xl_RTXPRO6000BSE_v6` |
 | `GPU_ZONES` | GPU 节点可用区 | `southeastasia-1` |
+| `GPU_OS_DISK_SIZE_GB` | GPU 节点 OS 盘大小，默认 1024 以优先使用本地 NVMe ephemeral OS disk | `1024` |
 | `KARPENTER_IMAGE_REPO` | 定制 Karpenter 控制器镜像 | `quay.io/hydracz/karpenter-controller` |
 | `KARPENTER_IMAGE_TAG` | Karpenter 镜像 Tag | `v20260323-dev` |
 | `INSTALL_GPU_DRIVERS` | 是否自动安装 GPU 驱动 | `false` |
 | `SPOT_MAX_PRICE` | Spot 最高价 (`-1`=不限制) | `-1` |
-| `SYSTEM_MAX_PODS` | system pool 每节点最大 Pod 数 | `30` |
-| `KARPENTER_MAX_PODS` | GPU 节点每节点最大 Pod 数 | `15` |
 
 ## 部署步骤
 
@@ -115,7 +113,7 @@ cp aks.env.sample aks.env
 
 创建内容:
 - Resource Group、ACR、Azure Monitor Workspace、Log Analytics、Managed Grafana
-- AKS 集群 (Azure CNI underlay，OIDC + Workload Identity + KEDA)
+- AKS 集群 (Azure CNI overlay + Cilium，OIDC + Workload Identity + KEDA)
 - 仅 system 节点池，不启用 cluster-autoscaler
 
 ### 3. 部署 Karpenter
@@ -127,7 +125,7 @@ cp aks.env.sample aks.env
 创建内容:
 - Karpenter Managed Identity + RBAC + Federated Credential
 - 安装 `karpenter-crd` + `karpenter` Helm Charts
-- `AKSNodeClass/gpu` (installGPUDrivers: false, maxPods: 15)
+- `AKSNodeClass/gpu` (installGPUDrivers: false, vnetSubnetID 已显式设置, osDiskSizeGB: 1024)
 - `gpu-spot-pool` (weight=100, 优先使用 Spot)
 - `gpu-ondemand-pool` (weight=10, Spot 不可用时回退)
 
@@ -187,13 +185,15 @@ DELETE_NETWORK_RESOURCE_GROUP=true ./06-destroy-network.sh  # 删除网络
 
 ## 网络与 IP 规划
 
-方案采用单个 AKS subnet:
-- Node IP 和 Pod IP 都来自该 subnet (underlay 模式)
-- `maxPods` 直接影响 subnet IP 消耗
+方案采用单个 AKS 节点子网:
+- Node IP 来自该 subnet
+- Pod IP 使用 Azure CNI overlay 分配，不再直接消耗 subnet 地址
+- 节点 `maxPods` 使用 AKS/Cilium overlay 默认值，不做显式覆盖
+- `AKSNodeClass` 显式绑定 `vnetSubnetID`，避免 Karpenter 走默认子网
 
-当前配置:
-- system pool: `SYSTEM_MAX_PODS=30`
-- Karpenter GPU 节点: `KARPENTER_MAX_PODS=15`
+### GPU 节点本地 NVMe 磁盘
+
+`AKSNodeClass/gpu` 现在增加了 `osDiskSizeGB: 1024`，并在两个 GPU `NodePool` 上增加 `karpenter.azure.com/sku-storage-ephemeralos-maxsize > 1023` 的约束。这样会优先筛选支持至少 1 TiB ephemeral OS disk 的 SKU，让 AKS 尽可能把节点 OS 盘落到本地 NVMe 上，而不是回退到 managed disk。
 
 ## 关键实现细节
 

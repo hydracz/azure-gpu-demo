@@ -5,7 +5,7 @@
 #   1. AKS 不开启 cluster-autoscaler
 #   2. 仅创建 system 节点池, GPU 节点完全由 Karpenter 管理
 #   3. 开启 OIDC Issuer + Workload Identity
-#   4. 使用预创建的 VNet/Subnet (Azure CNI underlay, pod 使用 subnet IP)
+#   4. 使用预创建的 VNet/Subnet 作为节点子网 (Azure CNI overlay + Cilium)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -18,13 +18,12 @@ ensure_tooling
 
 : "${LOG_ANALYTICS_WORKSPACE_NAME:=log-${CLUSTER_NAME:-aks}-logs}"
 : "${AKS_DIAGNOSTIC_SETTING_NAME:=aks-all-logs}"
-: "${SYSTEM_MAX_PODS:=30}"
 
 require_env \
   AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
   MONITOR_WORKSPACE_NAME LOG_ANALYTICS_WORKSPACE_NAME AKS_DIAGNOSTIC_SETTING_NAME \
   GRAFANA_NAME SYSTEM_POOL_NAME SYSTEM_VM_SIZE SYSTEM_NODE_COUNT \
-  VNET_SUBNET_ID SYSTEM_MAX_PODS
+  VNET_SUBNET_ID
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 az extension add --name amg --upgrade --only-show-errors >/dev/null
@@ -151,7 +150,7 @@ fi
 
 # ── AKS 集群 (不开启 cluster-autoscaler) ─────────────────────────
 if ! aks_exists; then
-  log "Creating AKS cluster ${CLUSTER_NAME} on custom subnet ${VNET_SUBNET_ID}"
+  log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${VNET_SUBNET_ID}"
   az aks create \
     --resource-group "${RESOURCE_GROUP}" \
     --name "${CLUSTER_NAME}" \
@@ -161,7 +160,8 @@ if ! aks_exists; then
     --node-count "${SYSTEM_NODE_COUNT}" \
     --vnet-subnet-id "${VNET_SUBNET_ID}" \
     --network-plugin azure \
-    --max-pods "${SYSTEM_MAX_PODS}" \
+    --network-plugin-mode overlay \
+    --network-dataplane cilium \
     --load-balancer-sku standard \
     --enable-managed-identity \
     --enable-oidc-issuer \
@@ -232,12 +232,10 @@ write_generated_env AKS_OIDC_ISSUER "${aks_oidc_issuer}"
 write_generated_env AKS_ENDPOINT "https://${aks_endpoint}"
 write_generated_env NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env VNET_SUBNET_ID "${VNET_SUBNET_ID}"
-write_generated_env SYSTEM_MAX_PODS "${SYSTEM_MAX_PODS}"
 
 log "Cluster bootstrap completed (no cluster-autoscaler, no user node pools)"
-log "AKS network mode      → Azure CNI underlay (pod IPs from subnet)"
-log "AKS custom subnet     → ${VNET_SUBNET_ID}"
-log "System pool max pods  → ${SYSTEM_MAX_PODS}"
+log "AKS network mode      → Azure CNI overlay + Cilium"
+log "AKS node subnet       → ${VNET_SUBNET_ID}"
 log "AKS diagnostic logs → Log Analytics Workspace ${LOG_ANALYTICS_WORKSPACE_NAME}"
 log "Next step: run 15-deploy-karpenter.sh to deploy Karpenter"
 kubectl get nodes -L agentpool

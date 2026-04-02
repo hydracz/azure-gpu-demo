@@ -57,11 +57,3 @@ if [[ "${DELETE_NODE_RESOURCE_GROUP:-false}" == "true" ]]; then
     fi
   fi
 fi
-
-log "Removing local generated env file"
-if [[ -f "${GENERATED_ENV_FILE}" ]]; then
-  rm -f "${GENERATED_ENV_FILE}"
-  log "Removed ${GENERATED_ENV_FILE}"
-else
-  log "Generated env file ${GENERATED_ENV_FILE} does not exist"
-fi

@@ -6,7 +6,7 @@
 #   1. NodePool 通过 karpenter.azure.com/sku-name 精确指定 GPU SKU
 #   2. AKSNodeClass 设置 installGPUDrivers: false 跳过 GPU 驱动安装
 #   3. 不设置 NodePool GPU 上限, 避免 SKU 元数据与实际 GPU 数不一致导致误判
-#   4. Azure CNI underlay 场景下, 自定义 subnet 由预创建
+#   4. Azure CNI overlay + Cilium 场景下, 自定义 subnet 作为节点子网
 #   5. Spot 配额不足场景: spot-pool 可能无法创建任何节点, 由 on-demand-pool 兜底
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -19,8 +19,11 @@ load_env
 ensure_tooling
 
 GPU_NODE_IMAGE_FAMILY="${GPU_NODE_IMAGE_FAMILY:-Ubuntu2404}"
-KARPENTER_MAX_PODS="${KARPENTER_MAX_PODS:-15}"
+GPU_OS_DISK_SIZE_GB="${GPU_OS_DISK_SIZE_GB:-1024}"
 GPU_ZONES="${GPU_ZONES:-${LOCATION}-1}"
+
+[[ "${GPU_OS_DISK_SIZE_GB}" =~ ^[0-9]+$ ]] || fail "GPU_OS_DISK_SIZE_GB must be an integer, got: ${GPU_OS_DISK_SIZE_GB}"
+(( GPU_OS_DISK_SIZE_GB >= 30 )) || fail "GPU_OS_DISK_SIZE_GB must be at least 30 GB, got: ${GPU_OS_DISK_SIZE_GB}"
 
 # Helm Chart 位于项目根目录 charts/
 KARPENTER_CHART_DIR="${ROOT_DIR}/charts"
@@ -32,7 +35,7 @@ require_env \
   KARPENTER_IMAGE_REPO KARPENTER_IMAGE_TAG \
   GPU_SKU_NAME GPU_TYPE INSTALL_GPU_DRIVERS \
   CONSOLIDATE_AFTER SPOT_MAX_PRICE \
-  KARPENTER_MAX_PODS GPU_ZONES VNET_SUBNET_ID
+  GPU_ZONES VNET_SUBNET_ID
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 
@@ -170,6 +173,7 @@ for zone in zones:
     print(f"            - {zone}")
 PY
 )"
+ephemeral_os_disk_min_size_gb="$((GPU_OS_DISK_SIZE_GB - 1))"
 
 tmp_values_file="$(mktemp)"
 cleanup() {
@@ -325,10 +329,11 @@ kind: AKSNodeClass
 metadata:
   name: gpu
   annotations:
-    kubernetes.io/description: "GPU AKSNodeClass - underlay subnet IPs, maxPods=${KARPENTER_MAX_PODS}, skip GPU driver installation"
+    kubernetes.io/description: "GPU AKSNodeClass - overlay node subnet, 1TiB ephemeral OS disk, skip GPU driver installation"
 spec:
   imageFamily: ${GPU_NODE_IMAGE_FAMILY}
-  maxPods: ${KARPENTER_MAX_PODS}
+  vnetSubnetID: ${vnet_subnet_id}
+  osDiskSizeGB: ${GPU_OS_DISK_SIZE_GB}
   installGPUDrivers: ${INSTALL_GPU_DRIVERS}
 EOF
 
@@ -364,6 +369,9 @@ ${gpu_zones_yaml}
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
+        - key: karpenter.azure.com/sku-storage-ephemeralos-maxsize
+          operator: Gt
+          values: ["${ephemeral_os_disk_min_size_gb}"]
         - key: node.kubernetes.io/instance-type
           operator: In
           values: ["${GPU_SKU_NAME}"]
@@ -408,6 +416,9 @@ ${gpu_zones_yaml}
         - key: kubernetes.io/arch
           operator: In
           values: ["amd64"]
+        - key: karpenter.azure.com/sku-storage-ephemeralos-maxsize
+          operator: Gt
+          values: ["${ephemeral_os_disk_min_size_gb}"]
         - key: node.kubernetes.io/instance-type
           operator: In
           values: ["${GPU_SKU_NAME}"]
@@ -428,10 +439,10 @@ log "Karpenter GPU deployment completed"
 log "  Controller image : ${KARPENTER_IMAGE_REPO}:${KARPENTER_IMAGE_TAG}"
 log "  GPU SKU          : ${GPU_SKU_NAME}"
 log "  Custom subnet    : ${vnet_subnet_id}"
-log "  Karpenter maxPods: ${KARPENTER_MAX_PODS}"
+log "  GPU OS disk size : ${GPU_OS_DISK_SIZE_GB} GiB (prefer ephemeral NVMe)"
 log "  installGPUDrivers: ${INSTALL_GPU_DRIVERS}"
 log "  NodePools        : gpu-spot-pool (weight=100), gpu-ondemand-pool (weight=10)"
-log "  AKSNodeClass     : gpu (${GPU_NODE_IMAGE_FAMILY}, maxPods=${KARPENTER_MAX_PODS}, installGPUDrivers=${INSTALL_GPU_DRIVERS})"
+log "  AKSNodeClass     : gpu (${GPU_NODE_IMAGE_FAMILY}, subnet=${vnet_subnet_id}, osDisk=${GPU_OS_DISK_SIZE_GB}GiB, installGPUDrivers=${INSTALL_GPU_DRIVERS})"
 log ""
 log "⚠ NOTE: Spot quota may be < 128 vCPU. If gpu-spot-pool cannot provision,"
 log "  Karpenter will fallback to gpu-ondemand-pool (on-demand)."
