@@ -1,0 +1,10 @@
+.generated.env
+aks.env
+charts/karpenter/
+charts/karpenter-crd/
+charts/gpu-operator/
+validation-artifacts/
+*.swp
+*.swo
+*~
+.DS_Store
