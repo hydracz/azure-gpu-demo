@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
@@ -20,9 +20,11 @@ ensure_tooling
 : "${AKS_DIAGNOSTIC_SETTING_NAME:=aks-all-logs}"
 : "${AKS_CREATE_RECOVERY_CHECKS:=12}"
 : "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS:=10}"
+: "${AKS_ENABLE_BLOB_DRIVER:=true}"
 
 [[ "${AKS_CREATE_RECOVERY_CHECKS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_CHECKS must be an integer, got: ${AKS_CREATE_RECOVERY_CHECKS}"
 [[ "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_INTERVAL_SECONDS must be an integer, got: ${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
+[[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" || "${AKS_ENABLE_BLOB_DRIVER}" == "false" ]] || fail "AKS_ENABLE_BLOB_DRIVER must be true or false, got: ${AKS_ENABLE_BLOB_DRIVER}"
 
 require_env \
   AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
@@ -155,6 +157,11 @@ fi
 
 create_aks_cluster() {
   local create_output cluster_state attempt
+  local -a blob_driver_args=()
+
+  if [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" ]]; then
+    blob_driver_args+=(--enable-blob-driver)
+  fi
 
   if create_output="$(az aks create \
     --resource-group "${RESOURCE_GROUP}" \
@@ -176,6 +183,7 @@ create_aks_cluster() {
     --enable-azure-monitor-metrics \
     --azure-monitor-workspace-resource-id "${monitor_workspace_id}" \
     --grafana-resource-id "${grafana_id}" \
+    "${blob_driver_args[@]}" \
     --generate-ssh-keys \
     --only-show-errors \
     -o none 2>&1)"; then
@@ -220,6 +228,23 @@ else
   log "AKS cluster ${CLUSTER_NAME} already exists"
 fi
 
+blob_driver_status="$(az aks show \
+  --resource-group "${RESOURCE_GROUP}" \
+  --name "${CLUSTER_NAME}" \
+  --query 'storageProfile.blobCsiDriver.enabled' \
+  -o tsv \
+  --only-show-errors 2>/dev/null || true)"
+
+if [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" && "${blob_driver_status}" != "true" ]]; then
+  log "Enabling Azure Blob CSI Driver on AKS cluster ${CLUSTER_NAME}"
+  az aks update \
+    --resource-group "${RESOURCE_GROUP}" \
+    --name "${CLUSTER_NAME}" \
+    --enable-blob-driver \
+    --only-show-errors \
+    >/dev/null
+fi
+
 wait_for_aks_ready
 
 # ── Diagnostic Settings ───────────────────────────────────────────
@@ -261,7 +286,7 @@ az aks get-credentials \
   >/dev/null
 
 log "Installing ServiceMonitor CRD (prometheus-operator)"
-if ! kubectl apply -f "${ROOT_DIR}/charts/crd-servicemonitors.yaml" --validate=false >/dev/null 2>&1; then
+if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-servicemonitors.yaml" --validate=false >/dev/null 2>&1; then
   warn "Failed to apply ServiceMonitor CRD; continue and run manually if needed"
 fi
 
@@ -277,7 +302,8 @@ write_generated_env VNET_SUBNET_ID "${VNET_SUBNET_ID}"
 
 log "Cluster bootstrap completed (no cluster-autoscaler, no user node pools)"
 log "AKS network mode      → Azure CNI overlay + Cilium"
+log "AKS Blob CSI Driver   → ${AKS_ENABLE_BLOB_DRIVER}"
 log "AKS node subnet       → ${VNET_SUBNET_ID}"
 log "AKS diagnostic logs → Log Analytics Workspace ${LOG_ANALYTICS_WORKSPACE_NAME}"
-log "Next step: run 15-deploy-karpenter.sh to deploy Karpenter"
+log "Next step: run 01-environment/shell/15-deploy-karpenter.sh to deploy Karpenter"
 kubectl get nodes -L agentpool

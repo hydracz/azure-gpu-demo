@@ -1,0 +1,4 @@
+resource_group_name  = "rg-tfstate-example"
+storage_account_name = "satfstateexample"
+container_name       = "tfstate"
+key                  = "azure-gpu-demo/01-environment/dev.tfstate"

@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 need_cmd az
@@ -121,4 +121,4 @@ log "  Network RG : ${NETWORK_RESOURCE_GROUP}"
 log "  VNet       : ${VNET_NAME} (${VNET_ADDRESS_PREFIX})"
 log "  Subnet     : ${AKS_SUBNET_NAME} (${AKS_SUBNET_ADDRESS_PREFIX})"
 log "  Subnet ID  : ${subnet_id}"
-log "Next step: run 10-create-aks.sh to create AKS on the custom subnet"
+log "Next step: run 01-environment/shell/10-create-aks.sh to create AKS on the custom subnet"

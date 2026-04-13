@@ -18,12 +18,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
 
-GPU_OPERATOR_CHART_DIR="${ROOT_DIR}/charts/gpu-operator"
+GPU_OPERATOR_CHART_DIR="${ROOT_DIR}/01-environment/charts/gpu-operator"
 [[ -d "${GPU_OPERATOR_CHART_DIR}" ]] || fail "GPU Operator Helm Chart not found at ${GPU_OPERATOR_CHART_DIR}. See README.md for chart setup instructions."
 
 GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE:-gpu-operator}"

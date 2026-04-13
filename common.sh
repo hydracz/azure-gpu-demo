@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="${SCRIPT_DIR}"
-ENV_FILE="${AKS_ENV_FILE:-${SCRIPT_DIR}/aks.env}"
-GENERATED_ENV_FILE="${SCRIPT_DIR}/.generated.env"
+COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${COMMON_DIR}"
+ENV_FILE="${AKS_ENV_FILE:-${ROOT_DIR}/aks.env}"
+GENERATED_ENV_FILE="${ROOT_DIR}/.generated.env"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"

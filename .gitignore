@@ -1,8 +1,13 @@
 .generated.env
 aks.env
-#charts/karpenter/
-#charts/karpenter-crd/
-#charts/gpu-operator/
+#01-environment/charts/karpenter/
+#01-environment/charts/karpenter-crd/
+#01-environment/charts/gpu-operator/
+01-environment/terraform/.generated-kubeconfig
+01-environment/terraform/.terraform/
+01-environment/terraform/*.tfstate
+01-environment/terraform/*.tfstate.*
+01-environment/terraform/*.tfplan
 validation-artifacts/
 *.swp
 *.swo

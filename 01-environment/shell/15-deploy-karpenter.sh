@@ -13,7 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
@@ -30,7 +30,7 @@ ROLE_ASSIGNMENT_RETRY_SECONDS="${ROLE_ASSIGNMENT_RETRY_SECONDS:-10}"
 [[ "${ROLE_ASSIGNMENT_RETRY_SECONDS}" =~ ^[0-9]+$ ]] || fail "ROLE_ASSIGNMENT_RETRY_SECONDS must be an integer, got: ${ROLE_ASSIGNMENT_RETRY_SECONDS}"
 
 # Helm Chart 位于项目根目录 charts/
-KARPENTER_CHART_DIR="${ROOT_DIR}/charts"
+KARPENTER_CHART_DIR="${ROOT_DIR}/01-environment/charts"
 [[ -d "${KARPENTER_CHART_DIR}/karpenter" ]] || fail "Karpenter Helm Chart not found at ${KARPENTER_CHART_DIR}/karpenter. See README.md for chart setup instructions."
 
 require_env \

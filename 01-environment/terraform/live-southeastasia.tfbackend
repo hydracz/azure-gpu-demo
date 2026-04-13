@@ -1,0 +1,5 @@
+resource_group_name  = "custom-images"
+storage_account_name = "czstor2"
+container_name       = "tfstate"
+key                  = "tf-aks-karpenter-rtxpro6000.tfstate"
+use_azuread_auth     = true

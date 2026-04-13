@@ -1,0 +1,69 @@
+subscription_id              = "d48da42e-7f16-44c8-89f7-4a7b478bd50a"
+location                     = "southeastasia"
+resource_group_name          = "rg-aks-karpgpu-004498"
+cluster_name                 = "aks-karpgpu-004498"
+acr_name                     = "acrkarpgpu004498"
+monitor_workspace_name       = "amw-aks-karpgpu-004498"
+monitor_workspace_public_network_access_enabled = true
+log_analytics_workspace_name = "log-aks-karpgpu-004498"
+grafana_name                 = "amg-aks-karpgpu-004498"
+grafana_major_version        = 11
+
+diagnostic_setting_name = "aks-all-logs"
+
+existing_subnet_id = ""
+
+network_resource_group_name = "rg-aks-karpgpu-004498-net"
+vnet_name                   = "vnet-aks-karpgpu-004498"
+vnet_address_space          = ["10.240.0.0/16"]
+aks_subnet_name             = "snet-aks-underlay"
+aks_subnet_address_prefixes = ["10.240.0.0/20"]
+
+system_pool_name   = "sysd4"
+system_vm_size     = "Standard_D4ads_v6"
+system_node_count  = 3
+aks_admin_username = "azureuser"
+
+service_cidr   = "172.16.32.0/19"
+dns_service_ip = "172.16.32.10"
+blob_driver_enabled = true
+
+grafana_admin_principal_ids      = ["6aba1fae-2eb0-44f5-8dcf-54888d1fd3e5"]
+prometheus_rule_group_enabled    = true
+prometheus_rule_group_interval   = "PT1M"
+service_monitor_crd_enabled      = true
+
+karpenter_namespace        = "kube-system"
+karpenter_service_account  = "karpenter-sa"
+karpenter_identity_name    = "id-karpgpu-004498"
+karpenter_image_repository = "quay.io/hydracz/karpenter-controller"
+karpenter_image_tag        = "v20260323-dev"
+
+gpu_sku_name          = "Standard_NC128lds_xl_RTXPRO6000BSE_v6"
+gpu_type              = "rtxpro6000-bse"
+gpu_zones             = ["southeastasia-1"]
+gpu_node_image_family = "Ubuntu2404"
+gpu_os_disk_size_gb   = 1024
+install_gpu_drivers   = false
+consolidate_after     = "10m"
+spot_max_price        = "-1"
+
+gpu_operator_enabled               = true
+gpu_operator_namespace             = "gpu-operator"
+gpu_driver_cr_name                 = "rtxpro6000-azure"
+gpu_driver_node_selector_key       = "karpenter.azure.com/sku-gpu-name"
+gpu_driver_node_selector_value     = ""
+gpu_driver_source_repository       = "docker.io/yingeli"
+gpu_driver_image                   = "driver"
+gpu_driver_version                 = "580.105.08"
+gpu_driver_require_matching_nodes  = false
+gpu_driver_sync_enabled            = true
+gpu_driver_sync_use_sudo           = false
+gpu_driver_allow_os_tag_alias      = false
+gpu_driver_version_source_tag_2204 = "580.105.08-ubuntu22.04"
+gpu_driver_version_source_tag_2404 = "580.105.08-ubuntu24.04"
+
+tags = {
+  environment = "live-test"
+  owner       = "zhenchen"
+}
