@@ -149,13 +149,112 @@ variable "istio_revisions" {
 variable "istio_internal_ingress_gateway_enabled" {
   description = "Whether to enable the AKS managed Istio internal ingress gateway"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "istio_external_ingress_gateway_enabled" {
   description = "Whether to enable the AKS managed Istio external ingress gateway"
   type        = bool
   default     = true
+}
+
+variable "istio_internal_ingress_gateway_min_replicas" {
+  description = "Minimum replicas for the AKS managed Istio internal ingress gateway HPA"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.istio_internal_ingress_gateway_min_replicas >= 2
+    error_message = "istio_internal_ingress_gateway_min_replicas must be >= 2."
+  }
+}
+
+variable "istio_internal_ingress_gateway_max_replicas" {
+  description = "Maximum replicas for the AKS managed Istio internal ingress gateway HPA"
+  type        = number
+  default     = 5
+}
+
+variable "istio_external_ingress_gateway_min_replicas" {
+  description = "Minimum replicas for the AKS managed Istio external ingress gateway HPA"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.istio_external_ingress_gateway_min_replicas >= 2
+    error_message = "istio_external_ingress_gateway_min_replicas must be >= 2."
+  }
+}
+
+variable "istio_external_ingress_gateway_max_replicas" {
+  description = "Maximum replicas for the AKS managed Istio external ingress gateway HPA"
+  type        = number
+  default     = 5
+}
+
+variable "istio_kiali_enabled" {
+  description = "Whether to deploy Kiali and the Azure Monitor auth proxy for AKS managed Istio"
+  type        = bool
+  default     = true
+}
+
+variable "istio_kiali_namespace" {
+  description = "Namespace where Kiali and the Azure Monitor auth proxy are deployed"
+  type        = string
+  default     = "aks-istio-system"
+}
+
+variable "istio_kiali_replicas" {
+  description = "Replica count for the Kiali deployment"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.istio_kiali_replicas >= 1
+    error_message = "istio_kiali_replicas must be >= 1."
+  }
+}
+
+variable "istio_kiali_view_only_mode" {
+  description = "Whether Kiali should be installed in view-only mode"
+  type        = bool
+  default     = true
+}
+
+variable "istio_kiali_operator_chart_version" {
+  description = "Helm chart version for the Kiali operator"
+  type        = string
+  default     = "2.20.0"
+}
+
+variable "istio_kiali_prometheus_retention_period" {
+  description = "Retention period reported to Kiali for the Azure Managed Prometheus proxy"
+  type        = string
+  default     = "30d"
+}
+
+variable "istio_kiali_prometheus_scrape_interval" {
+  description = "Scrape interval reported to Kiali for the Azure Managed Prometheus proxy"
+  type        = string
+  default     = "30s"
+}
+
+variable "istio_kiali_proxy_identity_name" {
+  description = "User assigned managed identity name for the Kiali Azure Monitor auth proxy"
+  type        = string
+  default     = "id-aks-istio-kiali-proxy"
+}
+
+variable "istio_kiali_proxy_service_account_name" {
+  description = "Service account name for the Kiali Azure Monitor auth proxy"
+  type        = string
+  default     = "azuremonitor-query"
+}
+
+variable "istio_kiali_proxy_service_name" {
+  description = "Service name for the Kiali Azure Monitor auth proxy"
+  type        = string
+  default     = "azuremonitor-query"
 }
 
 variable "grafana_admin_principal_ids" {

@@ -290,6 +290,9 @@ if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-servicemonitors.yam
   warn "Failed to apply ServiceMonitor CRD; continue and run manually if needed"
 fi
 
+log "Applying AMA metrics settings ConfigMap"
+kubectl apply -f "${ROOT_DIR}/01-environment/charts/ama-metrics-settings-configmap.yaml" >/dev/null
+
 # ── 保存集群信息到 .generated.env ─────────────────────────────────
 aks_oidc_issuer="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "oidcIssuerProfile.issuerUrl" -o tsv --only-show-errors)"
 aks_endpoint="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "fqdn" -o tsv --only-show-errors)"

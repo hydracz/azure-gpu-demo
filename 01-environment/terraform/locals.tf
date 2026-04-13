@@ -19,6 +19,7 @@ locals {
   karpenter_crd_chart_dir = "${path.module}/../charts/karpenter-crd"
   gpu_operator_chart_dir  = "${path.module}/../charts/gpu-operator"
   service_monitor_crd     = "${path.module}/../charts/crd-servicemonitors.yaml"
+  ama_metrics_config      = "${path.module}/../charts/ama-metrics-settings-configmap.yaml"
 
   karpenter_chart_hash = sha256(join("", [
     for file in sort(fileset(local.karpenter_chart_dir, "**")) : filesha256("${local.karpenter_chart_dir}/${file}")
@@ -30,6 +31,7 @@ locals {
     for file in sort(fileset(local.gpu_operator_chart_dir, "**")) : filesha256("${local.gpu_operator_chart_dir}/${file}")
   ]))
   service_monitor_crd_hash = filesha256(local.service_monitor_crd)
+  ama_metrics_config_hash  = filesha256(local.ama_metrics_config)
 
   common_tags = merge(
     {

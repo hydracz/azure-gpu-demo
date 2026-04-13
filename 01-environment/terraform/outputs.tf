@@ -30,6 +30,18 @@ output "service_mesh_revisions" {
   value = try(azurerm_kubernetes_cluster.main.service_mesh_profile[0].revisions, [])
 }
 
+output "monitor_workspace_query_endpoint" {
+  value = azurerm_monitor_workspace.main.query_endpoint
+}
+
+output "istio_kiali_namespace" {
+  value = var.istio_kiali_enabled ? var.istio_kiali_namespace : null
+}
+
+output "istio_kiali_proxy_client_id" {
+  value = var.istio_kiali_enabled ? azurerm_user_assigned_identity.istio_kiali_proxy[0].client_id : null
+}
+
 output "oidc_issuer_url" {
   value = azurerm_kubernetes_cluster.main.oidc_issuer_url
 }

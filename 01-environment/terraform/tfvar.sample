@@ -31,8 +31,22 @@ dns_service_ip = "172.16.32.10"
 blob_driver_enabled = true
 istio_service_mesh_enabled             = true
 istio_revisions                        = ["asm-1-27"]
-istio_internal_ingress_gateway_enabled = false
+istio_internal_ingress_gateway_enabled = true
 istio_external_ingress_gateway_enabled = true
+istio_internal_ingress_gateway_min_replicas = 2
+istio_internal_ingress_gateway_max_replicas = 5
+istio_external_ingress_gateway_min_replicas = 2
+istio_external_ingress_gateway_max_replicas = 5
+istio_kiali_enabled                         = true
+istio_kiali_namespace                       = "aks-istio-system"
+istio_kiali_replicas                        = 1
+istio_kiali_view_only_mode                  = true
+istio_kiali_operator_chart_version          = "2.20.0"
+istio_kiali_prometheus_retention_period     = "30d"
+istio_kiali_prometheus_scrape_interval      = "30s"
+istio_kiali_proxy_identity_name             = "id-aks-istio-kiali-proxy"
+istio_kiali_proxy_service_account_name      = "azuremonitor-query"
+istio_kiali_proxy_service_name              = "azuremonitor-query"
 
 # 需要给当前使用者或运维组赋权时, 传入 object id / principal id 列表。
 grafana_admin_principal_ids = []

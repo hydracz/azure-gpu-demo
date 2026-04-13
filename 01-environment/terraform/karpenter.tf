@@ -162,6 +162,7 @@ resource "null_resource" "install_karpenter" {
 
   depends_on = [
     time_sleep.aks_api_ready,
+    null_resource.ama_metrics_config,
     azurerm_federated_identity_credential.karpenter,
     azurerm_role_assignment.karpenter_node_rg_vm_contributor,
     azurerm_role_assignment.karpenter_node_rg_network_contributor,
