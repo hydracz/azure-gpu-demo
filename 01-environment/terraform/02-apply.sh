@@ -3,6 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../common.sh"
 ENV_NAME="${1:-}"
 
 if [[ -z "${ENV_NAME}" ]]; then
@@ -25,3 +27,4 @@ fi
 
 cd "${SCRIPT_DIR}"
 terraform apply "${PLAN_FILE}"
+bash "${SCRIPT_DIR}/scripts/export-generated-env.sh"

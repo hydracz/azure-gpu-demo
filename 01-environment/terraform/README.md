@@ -69,4 +69,6 @@ cp tfbackend.sample dev.tfbackend
 - 这一版 Terraform 会在 apply 阶段通过本机的 az、kubectl、helm、python3 执行集群内软件安装，职责已经与 shell 版本基本对齐。
 - Terraform 在安装 Karpenter、GPU Operator、Kiali 之前，会先把这些用户侧 Helm 工作负载依赖的上游镜像同步到当前 ACR，再用本地 ACR 镜像完成部署。
 - AKS 托管 add-on（例如 cilium、KEDA、AMA metrics、托管 Istio ingress/pilot）仍由 AKS 平台管理，这部分镜像不会被本仓库覆盖到 ACR。
+- 03-images/gpu-probe 默认会复用当前目录下的 `.generated-kubeconfig`，这样测试镜像可以构建到 01 创建的 ACR，测试工作负载也能直接部署到 01 创建的 AKS。
+- `02-apply.sh` 在 Terraform apply 完成后会把常用输出同步到仓库根目录下的 `.generated.env`，方便后续脚本直接读取 ACR、AKS、kubeconfig 和监控相关变量。
 - 如果只想保留基础 Azure 资源，不想在 Terraform 中安装 Karpenter 或 GPU Operator，可以把 gpu_operator_enabled 设为 false，或按需移除对应 null_resource。

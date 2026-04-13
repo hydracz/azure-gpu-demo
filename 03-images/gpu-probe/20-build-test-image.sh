@@ -26,5 +26,7 @@ az acr build \
   --only-show-errors
 
 write_generated_env TEST_IMAGE_URI "${full_image_uri}"
+write_generated_env TEST_IMAGE_ACR_LOGIN_SERVER "${login_server}"
+write_generated_env TEST_IMAGE_REPOSITORY_PATH "${TEST_IMAGE_REPOSITORY}"
 
 log "Image published: ${full_image_uri}"

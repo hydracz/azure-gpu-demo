@@ -150,6 +150,12 @@ fi
 monitor_workspace_id="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
 log_analytics_workspace_id="$(az monitor log-analytics workspace show --name "${LOG_ANALYTICS_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
 grafana_id="$(az grafana show --name "${GRAFANA_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
+acr_login_server="$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query loginServer -o tsv --only-show-errors)"
+
+monitor_workspace_query_endpoint="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query 'properties.metrics.prometheusQueryEndpoint' -o tsv --only-show-errors 2>/dev/null || true)"
+if [[ -z "${monitor_workspace_query_endpoint}" || "${monitor_workspace_query_endpoint}" == "null" ]]; then
+  monitor_workspace_query_endpoint="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query 'metrics.prometheusQueryEndpoint' -o tsv --only-show-errors 2>/dev/null || true)"
+fi
 
 if ! az network vnet subnet show --ids "${VNET_SUBNET_ID}" --only-show-errors >/dev/null 2>&1; then
   fail "Custom subnet ${VNET_SUBNET_ID} not found. Run 05-create-network.sh first or set VNET_SUBNET_ID to an existing subnet."
@@ -278,12 +284,7 @@ az monitor diagnostic-settings create \
 
 # ── 获取 kubeconfig ───────────────────────────────────────────────
 log "Fetching kubeconfig"
-az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null
+ensure_aks_kubeconfig
 
 log "Installing ServiceMonitor CRD (prometheus-operator)"
 if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-servicemonitors.yaml" --validate=false >/dev/null 2>&1; then
@@ -298,10 +299,28 @@ aks_oidc_issuer="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CL
 aks_endpoint="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "fqdn" -o tsv --only-show-errors)"
 node_resource_group="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "nodeResourceGroup" -o tsv --only-show-errors)"
 
+write_generated_env AZ_SUBSCRIPTION_ID "${AZ_SUBSCRIPTION_ID}"
+write_generated_env LOCATION "${LOCATION}"
+write_generated_env RESOURCE_GROUP "${RESOURCE_GROUP}"
+write_generated_env CLUSTER_NAME "${CLUSTER_NAME}"
+write_generated_env ACR_NAME "${ACR_NAME}"
+write_generated_env ACR_ID "$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
+write_generated_env ACR_LOGIN_SERVER "${acr_login_server}"
+write_generated_env CLUSTER_ID "${cluster_id}"
+write_generated_env CLUSTER_FQDN "${aks_endpoint}"
 write_generated_env AKS_OIDC_ISSUER "${aks_oidc_issuer}"
+write_generated_env OIDC_ISSUER_URL "${aks_oidc_issuer}"
 write_generated_env AKS_ENDPOINT "https://${aks_endpoint}"
+write_generated_env CLUSTER_ENDPOINT "https://${aks_endpoint}"
 write_generated_env NODE_RESOURCE_GROUP "${node_resource_group}"
+write_generated_env AZURE_NODE_RESOURCE_GROUP "${node_resource_group}"
+write_generated_env AKS_SUBNET_ID "${VNET_SUBNET_ID}"
 write_generated_env VNET_SUBNET_ID "${VNET_SUBNET_ID}"
+write_generated_env MONITOR_WORKSPACE_ID "${monitor_workspace_id}"
+write_generated_env MONITOR_WORKSPACE_QUERY_ENDPOINT "${monitor_workspace_query_endpoint}"
+write_generated_env LOG_ANALYTICS_WORKSPACE_ID "${log_analytics_workspace_id}"
+write_generated_env GRAFANA_ID "${grafana_id}"
+write_generated_env KUBECTL_CREDENTIALS_COMMAND "az aks get-credentials --resource-group ${RESOURCE_GROUP} --name ${CLUSTER_NAME} --overwrite-existing"
 
 log "Cluster bootstrap completed (no cluster-autoscaler, no user node pools)"
 log "AKS network mode      → Azure CNI overlay + Cilium"

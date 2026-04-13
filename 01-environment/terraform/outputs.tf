@@ -1,5 +1,17 @@
+output "subscription_id" {
+  value = var.subscription_id
+}
+
+output "location" {
+  value = var.location
+}
+
 output "resource_group_name" {
   value = azurerm_resource_group.main.name
+}
+
+output "cluster_name" {
+  value = azurerm_kubernetes_cluster.main.name
 }
 
 output "network_resource_group_name" {
@@ -52,6 +64,10 @@ output "node_resource_group" {
 
 output "acr_id" {
   value = azurerm_container_registry.main.id
+}
+
+output "acr_name" {
+  value = azurerm_container_registry.main.name
 }
 
 output "acr_login_server" {

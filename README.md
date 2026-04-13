@@ -14,9 +14,7 @@ azure-gpu-demo/
 ├── 02-storage/
 │   └── blob-csi/            # 后续独立的 Blob CSI 使用与挂载流程
 ├── 03-images/
-│   └── gpu-probe/           # 镜像构建阶段
-├── 04-workloads/
-│   └── gpu-probe/           # 工作负载部署阶段
+│   └── gpu-probe/           # GPU probe 测试应用：build / deploy / cleanup
 ├── aks.env.sample           # 全局环境变量模板
 └── common.sh                # 全局 shell 公共函数
 ```
@@ -25,8 +23,8 @@ azure-gpu-demo/
 
 - 01 只负责环境搭建，Terraform 与 shell 两套入口并存。
 - 02 预留独立存储能力，避免后续 Blob CSI 与集群创建脚本耦合。
-- 03 只负责镜像构建与推送，不再和集群部署混在一起。
-- 04 只负责工作负载发布、回滚和验证。
+- 03 负责 GPU probe 测试应用的完整验证闭环，包括镜像构建、发布和清理。
+- 01 环境阶段会把常用输出写入 `.generated.env`，方便后续测试脚本直接复用。
 
 ## 当前推荐用法
 
@@ -34,8 +32,6 @@ azure-gpu-demo/
 
 如果你要切到声明式基础设施流程，使用 01-environment/terraform。
 
-如果你要构建测试镜像，使用 03-images/gpu-probe。
-
-如果你要部署测试应用，使用 04-workloads/gpu-probe。
+如果你要构建并部署 GPU probe 测试应用，使用 03-images/gpu-probe。
 
 各阶段具体说明见各自 README。

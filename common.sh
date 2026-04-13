@@ -6,6 +6,7 @@ COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${COMMON_DIR}"
 ENV_FILE="${AKS_ENV_FILE:-${ROOT_DIR}/aks.env}"
 GENERATED_ENV_FILE="${ROOT_DIR}/.generated.env"
+DEFAULT_AKS_KUBECONFIG_FILE="${ROOT_DIR}/01-environment/terraform/.generated-kubeconfig"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -24,9 +25,17 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
 }
 
+ensure_parent_dir() {
+  local target_path="$1"
+  local target_dir
+
+  target_dir="$(dirname "${target_path}")"
+  mkdir -p "${target_dir}"
+}
+
 load_env() {
   if [[ ! -f "${ENV_FILE}" ]]; then
-    fail "missing env file: ${ENV_FILE}. Copy aks.env.sample to aks.env first."
+    fail "missing env file: ${ENV_FILE}. Copy aks.env.sample to aks.env first, or set AKS_ENV_FILE to an existing env file."
   fi
 
   set -a
@@ -149,6 +158,38 @@ wait_for_aks_ready() {
   done
 
   fail "Timed out waiting for AKS cluster ${CLUSTER_NAME} to become ready; last provisioningState=${state:-unknown}"
+}
+
+resolve_aks_kubeconfig_file() {
+  printf '%s\n' "${AKS_KUBECONFIG_FILE:-${DEFAULT_AKS_KUBECONFIG_FILE}}"
+}
+
+ensure_aks_kubeconfig() {
+  local kubeconfig_file
+
+  need_cmd az
+  need_cmd kubectl
+  require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME
+
+  kubeconfig_file="${1:-$(resolve_aks_kubeconfig_file)}"
+  ensure_parent_dir "${kubeconfig_file}"
+
+  az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
+  if az aks get-credentials \
+    --resource-group "${RESOURCE_GROUP}" \
+    --name "${CLUSTER_NAME}" \
+    --file "${kubeconfig_file}" \
+    --overwrite-existing \
+    --only-show-errors \
+    >/dev/null 2>&1; then
+    log "Fetched AKS kubeconfig for ${CLUSTER_NAME} into ${kubeconfig_file}"
+  else
+    fail "Failed to fetch AKS kubeconfig for ${CLUSTER_NAME}"
+  fi
+
+  export AKS_KUBECONFIG_FILE="${kubeconfig_file}"
+  export KUBECONFIG="${kubeconfig_file}"
+  write_generated_env AKS_KUBECONFIG_FILE "${kubeconfig_file}"
 }
 
 write_generated_env() {

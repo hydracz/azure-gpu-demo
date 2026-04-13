@@ -20,15 +20,7 @@ if ! aks_exists; then
   exit 0
 fi
 
-if ! az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null 2>&1; then
-  warn "Failed to fetch AKS credentials for ${CLUSTER_NAME}, skipping test app deletion"
-  exit 0
-fi
+ensure_aks_kubeconfig
 
 if ! kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
   log "Namespace ${APP_NAMESPACE} does not exist, nothing to delete"

@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # 30-deploy-test-app.sh  —  部署 GPU 探测应用 (Karpenter 管理 GPU 节点)
-#
-# 核心特点:
-#   1. 请求 nvidia.com/gpu 资源
-#   2. toleration 匹配 GPU workload taint
-#   3. nodeAffinity 选择 GPU 节点 (workload=gpu-test)
-#   4. 不使用 KEDA 自动伸缩 (GPU 场景手动控制副本数)
-#   5. 不使用 podAntiAffinity (128 核 GPU VM, 一个节点足够)
-#   6. 超长 rollout 超时 (GPU VM 启动较慢)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -23,15 +15,11 @@ require_env \
   APP_MIN_REPLICAS APP_MAX_REPLICAS APP_REQUEST_CPU APP_LIMIT_CPU \
   APP_REQUEST_MEMORY APP_LIMIT_MEMORY APP_REQUEST_GPU GPU_TYPE
 
-az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
-az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null
+ensure_aks_kubeconfig
 
 log "Deploying namespace ${APP_NAMESPACE} and GPU workload ${APP_NAME}"
+log "Using kubeconfig ${KUBECONFIG}"
+log "Deploying image ${TEST_IMAGE_URI} to AKS cluster ${CLUSTER_NAME}"
 log "⚠ GPU VM (128 vCPU) may take 5-15 min to provision. Pod may stay Pending if Spot quota < 128."
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: v1
