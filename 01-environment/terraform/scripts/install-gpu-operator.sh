@@ -3,6 +3,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/gpu-operator-image-sync.sh"
 
 need_cmd helm
 need_cmd kubectl
@@ -22,15 +26,6 @@ done
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
-
-run_skopeo() {
-  if [[ "${GPU_DRIVER_SYNC_USE_SUDO}" == "true" ]]; then
-    need_cmd sudo
-    sudo skopeo "$@"
-  else
-    skopeo "$@"
-  fi
-}
 
 run_with_retry() {
   local max_attempts="$1"
@@ -62,47 +57,6 @@ validate_driver_tag_mapping() {
   fi
 }
 
-sync_driver_images_to_acr() {
-  if [[ "${GPU_DRIVER_SYNC_ENABLED}" != "true" ]]; then
-    log "Skipping driver image sync because GPU_DRIVER_SYNC_ENABLED=${GPU_DRIVER_SYNC_ENABLED}"
-    return
-  fi
-
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
-
-  for mapping in \
-    "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}:${GPU_DRIVER_VERSION}-ubuntu22.04" \
-    "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}:${GPU_DRIVER_VERSION}-ubuntu24.04"
-  do
-    IFS=':' read -r source_tag target_tag <<<"${mapping}"
-    log "Importing ${GPU_DRIVER_SOURCE_REPOSITORY}/${GPU_DRIVER_IMAGE}:${source_tag} -> ${acr_login_server}/${GPU_DRIVER_IMAGE}:${target_tag}"
-
-    if run_with_retry 3 az acr import \
-      --name "${ACR_NAME}" \
-      --resource-group "${RESOURCE_GROUP}" \
-      --source "${GPU_DRIVER_SOURCE_REPOSITORY}/${GPU_DRIVER_IMAGE}:${source_tag}" \
-      --image "${GPU_DRIVER_IMAGE}:${target_tag}" \
-      --force \
-      --only-show-errors >/dev/null; then
-      continue
-    fi
-
-    warn "az acr import failed for ${target_tag}; falling back to skopeo copy"
-    need_cmd skopeo
-
-    local acr_access_token
-    acr_access_token="$(az acr login --name "${ACR_NAME}" --expose-token --query accessToken -o tsv --only-show-errors)"
-    [[ -n "${acr_access_token}" ]] || fail "Failed to obtain ACR access token for ${ACR_NAME}"
-
-    run_with_retry 3 run_skopeo copy --all \
-      --dest-creds "00000000-0000-0000-0000-000000000000:${acr_access_token}" \
-      "docker://${GPU_DRIVER_SOURCE_REPOSITORY}/${GPU_DRIVER_IMAGE}:${source_tag}" \
-      "docker://${acr_login_server}/${GPU_DRIVER_IMAGE}:${target_tag}" \
-      || fail "Failed to sync ${target_tag} into ${ACR_NAME}"
-  done
-}
-
 ensure_gpu_operator_chart_deps() {
   if [[ -d "${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery" || -f "${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery-chart-0.18.2.tgz" ]]; then
     return
@@ -112,19 +66,33 @@ ensure_gpu_operator_chart_deps() {
 }
 
 az account set --subscription "${AZURE_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
-acr_login_server="$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query loginServer -o tsv --only-show-errors)"
-[[ -n "${acr_login_server}" ]] || fail "Failed to resolve login server for ACR ${ACR_NAME}"
+if [[ "${GPU_DRIVER_SYNC_ENABLED}" == "true" ]]; then
+  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
+  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
+fi
 
-GPU_DRIVER_TARGET_REPOSITORY="${GPU_DRIVER_TARGET_REPOSITORY:-${acr_login_server}}"
-
-sync_driver_images_to_acr
+sync_gpu_operator_images
 ensure_gpu_operator_chart_deps
 
+tmp_values_file="$(mktemp)"
+cleanup() {
+  rm -f "${tmp_values_file}"
+}
+trap cleanup EXIT
+write_gpu_operator_mirror_values_file "${tmp_values_file}"
+
 log "Installing GPU Operator from ${GPU_OPERATOR_CHART_DIR}"
+log "GPU Operator mirrored repositories:"
+log "  operator repo      : ${GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY}"
+log "  cloud-native repo  : ${GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY}"
+log "  k8s repo           : ${GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY}"
+log "  nfd repo           : ${GPU_OPERATOR_MIRROR_NFD_REPOSITORY}"
+log "  driver repo        : ${GPU_DRIVER_TARGET_REPOSITORY}"
 helm upgrade --install gpu-operator \
   "${GPU_OPERATOR_CHART_DIR}" \
   --namespace "${GPU_OPERATOR_NAMESPACE}" \
   --create-namespace \
+  -f "${tmp_values_file}" \
   --set driver.enabled=false \
   --set driver.nvidiaDriverCRD.enabled=true \
   --set driver.nvidiaDriverCRD.deployDefaultCR=false \

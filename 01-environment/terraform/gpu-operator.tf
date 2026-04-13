@@ -3,7 +3,7 @@ resource "null_resource" "install_gpu_operator" {
 
   triggers = {
     cluster_id                        = azurerm_kubernetes_cluster.main.id
-    kubeconfig_path                   = local_file.aks_kubeconfig.filename
+    kubeconfig_path                   = local.kubeconfig_path
     subscription_id                   = var.subscription_id
     resource_group_name               = azurerm_resource_group.main.name
     cluster_name                      = azurerm_kubernetes_cluster.main.name

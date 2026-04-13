@@ -66,5 +66,7 @@ cp tfbackend.sample dev.tfbackend
 - 默认会部署 anonymous 模式的 Kiali，并通过带 workload identity 的 Azure Monitor auth proxy 访问 Managed Prometheus，无需在集群内保存 Entra client secret。
 - Kiali 保持内部 `ClusterIP`，不额外暴露入口；需要访问时，使用 `kubectl port-forward -n aks-istio-system svc/kiali 20001:20001`，然后打开 `http://127.0.0.1:20001`。
 - ASM 启用后，业务命名空间需要显式打 istio.io/rev=asm-X-Y 标签；不能使用 istio-injection=enabled。
-- 这一版 Terraform 会在 apply 阶段通过本机的 az、kubectl、helm、python3、skopeo 执行集群内软件安装，职责已经与 shell 版本基本对齐。
+- 这一版 Terraform 会在 apply 阶段通过本机的 az、kubectl、helm、python3 执行集群内软件安装，职责已经与 shell 版本基本对齐。
+- Terraform 在安装 Karpenter、GPU Operator、Kiali 之前，会先把这些用户侧 Helm 工作负载依赖的上游镜像同步到当前 ACR，再用本地 ACR 镜像完成部署。
+- AKS 托管 add-on（例如 cilium、KEDA、AMA metrics、托管 Istio ingress/pilot）仍由 AKS 平台管理，这部分镜像不会被本仓库覆盖到 ACR。
 - 如果只想保留基础 Azure 资源，不想在 Terraform 中安装 Karpenter 或 GPU Operator，可以把 gpu_operator_enabled 设为 false，或按需移除对应 null_resource。

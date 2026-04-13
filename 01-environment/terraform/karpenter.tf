@@ -67,10 +67,11 @@ resource "null_resource" "install_karpenter" {
     cluster_id                 = azurerm_kubernetes_cluster.main.id
     cluster_name               = azurerm_kubernetes_cluster.main.name
     resource_group_name        = azurerm_resource_group.main.name
+    acr_name                   = azurerm_container_registry.main.name
     cluster_endpoint           = local.aks_endpoint
     subscription_id            = var.subscription_id
     location                   = var.location
-    kubeconfig_path            = local_file.aks_kubeconfig.filename
+    kubeconfig_path            = local.kubeconfig_path
     system_pool_name           = var.system_pool_name
     karpenter_namespace        = var.karpenter_namespace
     karpenter_service_account  = var.karpenter_service_account
@@ -110,6 +111,7 @@ resource "null_resource" "install_karpenter" {
       KUBECONFIG_FILE            = self.triggers.kubeconfig_path
       AZURE_SUBSCRIPTION_ID      = self.triggers.subscription_id
       RESOURCE_GROUP             = self.triggers.resource_group_name
+      ACR_NAME                   = self.triggers.acr_name
       LOCATION                   = self.triggers.location
       CLUSTER_NAME               = self.triggers.cluster_name
       AKS_ENDPOINT               = self.triggers.cluster_endpoint

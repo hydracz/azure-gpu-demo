@@ -3,6 +3,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/karpenter-image-sync.sh"
 
 need_cmd helm
 need_cmd kubectl
@@ -12,7 +16,7 @@ need_cmd az
 for required_var in \
   KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP LOCATION CLUSTER_NAME AKS_ENDPOINT SYSTEM_POOL_NAME \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_CLIENT_ID KARPENTER_CHART_DIR \
-  KARPENTER_CRD_CHART_DIR KARPENTER_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG VNET_SUBNET_ID \
+  KARPENTER_CRD_CHART_DIR KARPENTER_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG ACR_NAME VNET_SUBNET_ID \
   AZURE_NODE_RESOURCE_GROUP KUBELET_IDENTITY_CLIENT_ID NODE_IDENTITIES NETWORK_PLUGIN \
   NETWORK_PLUGIN_MODE NETWORK_POLICY SSH_PUBLIC_KEY GPU_NODE_IMAGE_FAMILY GPU_OS_DISK_SIZE_GB \
   INSTALL_GPU_DRIVERS GPU_ZONES_CSV GPU_SKU_NAME GPU_TYPE SPOT_MAX_PRICE CONSOLIDATE_AFTER
@@ -22,6 +26,8 @@ done
 
 [[ -d "${KARPENTER_CHART_DIR}" ]] || fail "Karpenter chart not found: ${KARPENTER_CHART_DIR}"
 [[ -d "${KARPENTER_CRD_CHART_DIR}" ]] || fail "Karpenter CRD chart not found: ${KARPENTER_CRD_CHART_DIR}"
+
+sync_karpenter_image
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
@@ -100,7 +106,7 @@ helm upgrade --install karpenter \
   --reset-values \
   -f "${tmp_values_file}" \
   --set "serviceMonitor.enabled=true" \
-  --set "controller.image.repository=${KARPENTER_IMAGE_REPOSITORY}" \
+  --set "controller.image.repository=${KARPENTER_TARGET_IMAGE_REPOSITORY}" \
   --set "controller.image.tag=${KARPENTER_IMAGE_TAG}" \
   --set "controller.image.digest=" \
   --set "settings.clusterName=${CLUSTER_NAME}" \

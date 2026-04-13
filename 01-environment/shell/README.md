@@ -4,6 +4,7 @@
 
 ## 目录内容
 
+- 14-sync-helm-images.sh: 独立把 Karpenter / GPU Operator 等用户侧 Helm 镜像同步到当前 ACR。
 - 05-create-network.sh: 创建或复用自定义 VNet/Subnet。
 - 06-destroy-network.sh: 删除单独的网络资源组。
 - 10-create-aks.sh: 创建 ACR、监控资源和 AKS 集群。
@@ -18,7 +19,6 @@
 
 - 已安装并登录 Azure CLI。
 - 已安装 kubectl、helm、docker、python3。
-- 如果需要同步 GPU driver 镜像，还需要 skopeo。
 - 根目录下准备好 aks.env。
 
 ```bash
@@ -30,9 +30,12 @@ cp aks.env.sample aks.env
 ```bash
 ./01-environment/shell/05-create-network.sh
 ./01-environment/shell/10-create-aks.sh
+./01-environment/shell/14-sync-helm-images.sh
 ./01-environment/shell/15-deploy-karpenter.sh
 ./01-environment/shell/17-deploy-gpu-operator.sh
 ```
+
+说明：14 这一步不是必须，因为 15/17 现在也会自动把各自依赖的上游镜像同步到 ACR；但在受限网络或需要提前预热镜像时，建议先单独执行一次。
 
 ## Charts 位置
 

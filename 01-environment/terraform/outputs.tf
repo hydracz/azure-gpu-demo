@@ -71,7 +71,7 @@ output "grafana_id" {
 }
 
 output "kubeconfig_path" {
-  value = local_file.aks_kubeconfig.filename
+  value = local.kubeconfig_path
 }
 
 output "karpenter_identity_client_id" {

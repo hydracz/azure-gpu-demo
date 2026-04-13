@@ -14,6 +14,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../scripts/image-sync-lib.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../scripts/karpenter-image-sync.sh"
 
 load_env
 ensure_tooling
@@ -34,7 +38,7 @@ KARPENTER_CHART_DIR="${ROOT_DIR}/01-environment/charts"
 [[ -d "${KARPENTER_CHART_DIR}/karpenter" ]] || fail "Karpenter Helm Chart not found at ${KARPENTER_CHART_DIR}/karpenter. See README.md for chart setup instructions."
 
 require_env \
-  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION \
+  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION ACR_NAME \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_IDENTITY_NAME \
   KARPENTER_IMAGE_REPO KARPENTER_IMAGE_TAG \
   GPU_SKU_NAME GPU_TYPE INSTALL_GPU_DRIVERS \
@@ -42,6 +46,9 @@ require_env \
   GPU_ZONES VNET_SUBNET_ID
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
+export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
+
+sync_karpenter_image
 
 # ── 加载 .generated.env 中集群信息 ─────────────────────────────────
 require_env AKS_OIDC_ISSUER AKS_ENDPOINT NODE_RESOURCE_GROUP
@@ -355,14 +362,14 @@ helm upgrade --install karpenter-crd \
   --wait
 
 log "Installing karpenter from ${KARPENTER_CHART_DIR}/karpenter"
-log "Using Karpenter controller image ${KARPENTER_IMAGE_REPO}:${KARPENTER_IMAGE_TAG}"
+log "Using mirrored Karpenter controller image ${KARPENTER_TARGET_IMAGE_REPOSITORY}:${KARPENTER_IMAGE_TAG}"
 helm upgrade --install karpenter \
   "${KARPENTER_CHART_DIR}/karpenter" \
   --namespace "${KARPENTER_NAMESPACE}" \
   --reset-values \
   -f "${tmp_values_file}" \
   --set "serviceMonitor.enabled=true" \
-  --set "controller.image.repository=${KARPENTER_IMAGE_REPO}" \
+  --set "controller.image.repository=${KARPENTER_TARGET_IMAGE_REPOSITORY}" \
   --set "controller.image.tag=${KARPENTER_IMAGE_TAG}" \
   --set "controller.image.digest=" \
   --set "settings.clusterName=${CLUSTER_NAME}" \

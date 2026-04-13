@@ -3,6 +3,27 @@ resource "tls_private_key" "aks_admin" {
   rsa_bits  = 4096
 }
 
+resource "azurerm_user_assigned_identity" "aks_control_plane" {
+  name                = var.aks_identity_name
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.common_tags
+}
+
+resource "azurerm_role_assignment" "aks_control_plane_vnet_reader" {
+  scope                            = local.aks_vnet_id
+  role_definition_name             = "Reader"
+  principal_id                     = azurerm_user_assigned_identity.aks_control_plane.principal_id
+  skip_service_principal_aad_check = true
+}
+
+resource "azurerm_role_assignment" "aks_control_plane_subnet_network_contributor" {
+  scope                            = local.aks_subnet_id
+  role_definition_name             = "Network Contributor"
+  principal_id                     = azurerm_user_assigned_identity.aks_control_plane.principal_id
+  skip_service_principal_aad_check = true
+}
+
 resource "azurerm_kubernetes_cluster" "main" {
   name                = var.cluster_name
   location            = var.location
@@ -26,7 +47,8 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.aks_control_plane.id]
   }
 
   linux_profile {
@@ -79,6 +101,8 @@ resource "azurerm_kubernetes_cluster" "main" {
     azurerm_dashboard_grafana.main,
     azurerm_log_analytics_workspace.main,
     azurerm_monitor_workspace.main,
+    azurerm_role_assignment.aks_control_plane_vnet_reader,
+    azurerm_role_assignment.aks_control_plane_subnet_network_contributor,
   ]
 }
 
@@ -105,12 +129,11 @@ resource "azurerm_monitor_diagnostic_setting" "aks" {
     }
   }
 
-  dynamic "metric" {
+  dynamic "enabled_metric" {
     for_each = toset(data.azurerm_monitor_diagnostic_categories.aks.metrics)
 
     content {
-      category = metric.value
-      enabled  = true
+      category = enabled_metric.value
     }
   }
 }

@@ -19,6 +19,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../scripts/image-sync-lib.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../scripts/gpu-operator-image-sync.sh"
 
 load_env
 ensure_tooling
@@ -34,31 +38,11 @@ GPU_DRIVER_IMAGE="${GPU_DRIVER_IMAGE:-driver}"
 GPU_DRIVER_VERSION="${GPU_DRIVER_VERSION:-580.105.08}"
 GPU_DRIVER_REQUIRE_MATCHING_NODES="${GPU_DRIVER_REQUIRE_MATCHING_NODES:-false}"
 GPU_DRIVER_SYNC_ENABLED="${GPU_DRIVER_SYNC_ENABLED:-true}"
-GPU_DRIVER_SYNC_USE_SUDO="${GPU_DRIVER_SYNC_USE_SUDO:-false}"
 GPU_DRIVER_ALLOW_OS_TAG_ALIAS="${GPU_DRIVER_ALLOW_OS_TAG_ALIAS:-false}"
 GPU_DRIVER_VERSION_SOURCE_TAG_2204="${GPU_DRIVER_VERSION_SOURCE_TAG_2204:-${GPU_DRIVER_VERSION}-ubuntu22.04}"
 GPU_DRIVER_VERSION_SOURCE_TAG_2404="${GPU_DRIVER_VERSION_SOURCE_TAG_2404:-${GPU_DRIVER_VERSION}-ubuntu24.04}"
 GPU_OPERATOR_DEP_CHART_DIR="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery"
 GPU_OPERATOR_DEP_CHART_PACKAGE="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery-chart-0.18.2.tgz"
-
-run_skopeo() {
-  if [[ "${GPU_DRIVER_SYNC_USE_SUDO}" == "true" ]]; then
-    sudo skopeo "$@"
-  else
-    skopeo "$@"
-  fi
-}
-
-copy_driver_image() {
-  local source_tag="$1"
-  local target_tag="$2"
-
-  log "Syncing ${GPU_DRIVER_SOURCE_REPOSITORY}/${GPU_DRIVER_IMAGE}:${source_tag} -> ${acr_login_server}/${GPU_DRIVER_IMAGE}:${target_tag}"
-  run_skopeo copy --all \
-    --dest-creds "00000000-0000-0000-0000-000000000000:${acr_access_token}" \
-    "docker://${GPU_DRIVER_SOURCE_REPOSITORY}/${GPU_DRIVER_IMAGE}:${source_tag}" \
-    "docker://${acr_login_server}/${GPU_DRIVER_IMAGE}:${target_tag}"
-}
 
 validate_driver_tag_mapping() {
   local source_tag="$1"
@@ -69,27 +53,6 @@ validate_driver_tag_mapping() {
   if [[ "${source_os_tag}" != "${target_os_tag}" && "${GPU_DRIVER_ALLOW_OS_TAG_ALIAS}" != "true" ]]; then
     fail "Refusing to alias driver image ${source_tag} to ${target_tag}. Set GPU_DRIVER_ALLOW_OS_TAG_ALIAS=true only if you intentionally want to test an OS-mismatched image."
   fi
-}
-
-sync_driver_images_to_acr() {
-  if [[ "${GPU_DRIVER_SYNC_ENABLED}" != "true" ]]; then
-    log "Skipping driver image sync because GPU_DRIVER_SYNC_ENABLED=${GPU_DRIVER_SYNC_ENABLED}"
-    return
-  fi
-
-  need_cmd skopeo
-  if [[ "${GPU_DRIVER_SYNC_USE_SUDO}" == "true" ]]; then
-    need_cmd sudo
-  fi
-
-  acr_access_token="$(az acr login --name "${ACR_NAME}" --expose-token --query accessToken -o tsv --only-show-errors)"
-  [[ -n "${acr_access_token}" ]] || fail "Failed to obtain ACR access token for ${ACR_NAME}"
-
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
-
-  copy_driver_image "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
-  copy_driver_image "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
 }
 
 ensure_gpu_operator_chart_deps() {
@@ -106,15 +69,26 @@ ensure_gpu_operator_controller() {
   else
     log "Installing NVIDIA GPU Operator from ${GPU_OPERATOR_CHART_DIR}"
   fi
+  log "GPU Operator mirrored repositories:"
+  log "  operator repo      : ${GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY}"
+  log "  cloud-native repo  : ${GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY}"
+  log "  k8s repo           : ${GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY}"
+  log "  nfd repo           : ${GPU_OPERATOR_MIRROR_NFD_REPOSITORY}"
+  log "  driver repo        : ${GPU_DRIVER_TARGET_REPOSITORY}"
   log "  driver.enabled=false (will use NVIDIADriver CR instead)"
   log "  dcgmExporter.serviceMonitor.enabled=true"
 
   ensure_gpu_operator_chart_deps
 
+  local tmp_values_file
+  tmp_values_file="$(mktemp)"
+  write_gpu_operator_mirror_values_file "${tmp_values_file}"
+
   helm upgrade --install gpu-operator \
     "${GPU_OPERATOR_CHART_DIR}" \
     --namespace "${GPU_OPERATOR_NAMESPACE}" \
     --create-namespace \
+    -f "${tmp_values_file}" \
     --set driver.enabled=false \
     --set driver.nvidiaDriverCRD.enabled=true \
     --set driver.nvidiaDriverCRD.deployDefaultCR=false \
@@ -136,6 +110,8 @@ ensure_gpu_operator_controller() {
     --wait \
     --timeout 10m
 
+  rm -f "${tmp_values_file}"
+
   log "Waiting for GPU Operator controller to be ready"
   kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
 }
@@ -151,11 +127,14 @@ fi
 EXPECTED_DRIVER_SELECTOR="${GPU_DRIVER_NODE_SELECTOR_KEY}=${GPU_DRIVER_NODE_SELECTOR_VALUE}"
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
-acr_login_server="$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query loginServer -o tsv --only-show-errors)"
-[[ -n "${acr_login_server}" ]] || fail "Failed to resolve login server for ACR ${ACR_NAME}"
-GPU_DRIVER_TARGET_REPOSITORY="${GPU_DRIVER_TARGET_REPOSITORY:-${acr_login_server}}"
+export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
 
-sync_driver_images_to_acr
+if [[ "${GPU_DRIVER_SYNC_ENABLED}" == "true" ]]; then
+  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
+  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
+fi
+
+sync_gpu_operator_images
 
 write_generated_env GPU_DRIVER_TARGET_REPOSITORY "${GPU_DRIVER_TARGET_REPOSITORY}"
 

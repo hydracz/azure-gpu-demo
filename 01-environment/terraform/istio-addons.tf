@@ -30,10 +30,11 @@ resource "null_resource" "install_istio_addons" {
 
   triggers = {
     cluster_id                                  = azurerm_kubernetes_cluster.main.id
-    kubeconfig_path                             = local_file.aks_kubeconfig.filename
+    kubeconfig_path                             = local.kubeconfig_path
     subscription_id                             = var.subscription_id
     resource_group_name                         = azurerm_resource_group.main.name
     cluster_name                                = azurerm_kubernetes_cluster.main.name
+    acr_name                                    = azurerm_container_registry.main.name
     monitor_workspace_query_endpoint            = azurerm_monitor_workspace.main.query_endpoint
     istio_internal_ingress_gateway_enabled      = tostring(var.istio_internal_ingress_gateway_enabled)
     istio_external_ingress_gateway_enabled      = tostring(var.istio_external_ingress_gateway_enabled)
@@ -65,6 +66,7 @@ resource "null_resource" "install_istio_addons" {
       AZURE_SUBSCRIPTION_ID                       = self.triggers.subscription_id
       RESOURCE_GROUP                              = self.triggers.resource_group_name
       CLUSTER_NAME                                = self.triggers.cluster_name
+      ACR_NAME                                    = self.triggers.acr_name
       MONITOR_WORKSPACE_QUERY_ENDPOINT            = self.triggers.monitor_workspace_query_endpoint
       ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED      = self.triggers.istio_internal_ingress_gateway_enabled
       ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED      = self.triggers.istio_external_ingress_gateway_enabled

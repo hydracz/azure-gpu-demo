@@ -25,6 +25,7 @@ system_pool_name  = "sysd4"
 system_vm_size    = "Standard_D4ads_v6"
 system_node_count = 3
 aks_admin_username = "azureuser"
+aks_identity_name  = "id-aks-control-plane"
 
 service_cidr   = "172.16.32.0/19"
 dns_service_ip = "172.16.32.10"

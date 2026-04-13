@@ -3,13 +3,17 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../../scripts/kiali-image-sync.sh"
 
 need_cmd az
 need_cmd helm
 need_cmd kubectl
 
 for required_var in \
-  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME \
+  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
   ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED \
   ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
   ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_EXTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
@@ -23,6 +27,10 @@ done
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
+
+if [[ "${ISTIO_KIALI_ENABLED}" == "true" ]]; then
+  sync_kiali_images
+fi
 
 validate_replica_pair() {
   local gateway_name="$1"
@@ -153,7 +161,7 @@ spec:
       serviceAccountName: ${ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME}
       containers:
         - name: aad-auth-proxy
-          image: mcr.microsoft.com/azuremonitor/auth-proxy/prod/aad-auth-proxy/images/aad-auth-proxy:0.1.0-main-04-10-2024-7067ac84
+          image: ${ISTIO_KIALI_PROXY_TARGET_IMAGE}
           imagePullPolicy: IfNotPresent
           ports:
             - name: auth-port
@@ -207,6 +215,9 @@ install_kiali() {
     --namespace "${ISTIO_KIALI_NAMESPACE}" \
     --create-namespace \
     --version "${ISTIO_KIALI_OPERATOR_CHART_VERSION}" \
+    --set "image.repo=${ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY}" \
+    --set "image.tag=${ISTIO_KIALI_IMAGE_TAG}" \
+    --set allowAdHocKialiImage=true \
     --wait \
     --timeout 10m >/dev/null
 
@@ -227,6 +238,8 @@ spec:
   deployment:
     namespace: ${ISTIO_KIALI_NAMESPACE}
     cluster_wide_access: true
+    image_name: ${ISTIO_KIALI_TARGET_IMAGE_NAME}
+    image_version: ${ISTIO_KIALI_IMAGE_TAG}
     service_type: ClusterIP
     replicas: ${ISTIO_KIALI_REPLICAS}
     view_only_mode: ${ISTIO_KIALI_VIEW_ONLY_MODE}

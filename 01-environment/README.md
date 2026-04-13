@@ -12,3 +12,4 @@
 
 - 这里负责 VNet/Subnet、ACR、Monitor Workspace、Log Analytics、Grafana、AKS，以及集群内的 Karpenter 和 GPU Operator 基础安装。
 - Blob CSI、镜像构建、应用发布等能力放到后续阶段目录，不再塞回 01。
+- 用户侧 Helm 工作负载所依赖的上游镜像，会在安装前同步到当前 ACR，并优先从 ACR 拉取；AKS 托管 add-on 镜像不在这个覆盖范围内。

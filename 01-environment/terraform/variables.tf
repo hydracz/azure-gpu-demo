@@ -18,6 +18,12 @@ variable "cluster_name" {
   type        = string
 }
 
+variable "aks_identity_name" {
+  description = "User assigned managed identity name for the AKS control plane"
+  type        = string
+  default     = "id-aks-control-plane"
+}
+
 variable "acr_name" {
   description = "Azure Container Registry name"
   type        = string
