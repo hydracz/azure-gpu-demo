@@ -56,6 +56,17 @@ resource "azurerm_kubernetes_cluster" "main" {
     keda_enabled = true
   }
 
+  dynamic "service_mesh_profile" {
+    for_each = var.istio_service_mesh_enabled ? [1] : []
+
+    content {
+      mode                             = "Istio"
+      revisions                        = var.istio_revisions
+      internal_ingress_gateway_enabled = var.istio_internal_ingress_gateway_enabled
+      external_ingress_gateway_enabled = var.istio_external_ingress_gateway_enabled
+    }
+  }
+
   storage_profile {
     blob_driver_enabled         = var.blob_driver_enabled
     disk_driver_enabled         = true

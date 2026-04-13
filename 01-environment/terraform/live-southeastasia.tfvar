@@ -27,6 +27,10 @@ aks_admin_username = "azureuser"
 service_cidr   = "172.16.32.0/19"
 dns_service_ip = "172.16.32.10"
 blob_driver_enabled = true
+istio_service_mesh_enabled             = true
+istio_revisions                        = ["asm-1-27"]
+istio_internal_ingress_gateway_enabled = false
+istio_external_ingress_gateway_enabled = true
 
 grafana_admin_principal_ids      = ["6aba1fae-2eb0-44f5-8dcf-54888d1fd3e5"]
 prometheus_rule_group_enabled    = true

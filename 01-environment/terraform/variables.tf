@@ -134,6 +134,30 @@ variable "blob_driver_enabled" {
   default     = true
 }
 
+variable "istio_service_mesh_enabled" {
+  description = "Whether to enable the AKS managed Istio-based service mesh add-on (ASM)"
+  type        = bool
+  default     = true
+}
+
+variable "istio_revisions" {
+  description = "Istio control plane revisions for the AKS managed service mesh add-on. Defaults to asm-1-27; set to [] to let AKS choose the default supported revision."
+  type        = list(string)
+  default     = ["asm-1-27"]
+}
+
+variable "istio_internal_ingress_gateway_enabled" {
+  description = "Whether to enable the AKS managed Istio internal ingress gateway"
+  type        = bool
+  default     = false
+}
+
+variable "istio_external_ingress_gateway_enabled" {
+  description = "Whether to enable the AKS managed Istio external ingress gateway"
+  type        = bool
+  default     = true
+}
+
 variable "grafana_admin_principal_ids" {
   description = "Principal ids that should receive Grafana Admin on the Managed Grafana resource"
   type        = list(string)

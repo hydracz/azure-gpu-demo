@@ -22,6 +22,14 @@ output "cluster_endpoint" {
   value = local.aks_endpoint
 }
 
+output "service_mesh_mode" {
+  value = try(azurerm_kubernetes_cluster.main.service_mesh_profile[0].mode, null)
+}
+
+output "service_mesh_revisions" {
+  value = try(azurerm_kubernetes_cluster.main.service_mesh_profile[0].revisions, [])
+}
+
 output "oidc_issuer_url" {
   value = azurerm_kubernetes_cluster.main.oidc_issuer_url
 }

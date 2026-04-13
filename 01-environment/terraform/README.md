@@ -14,6 +14,7 @@
 - Managed Grafana
 - AKS 集群
 - AKS Blob CSI Driver 默认开启
+- AKS 托管 Istio / Azure Service Mesh add-on（可选）
 - AKS 到 ACR 的 AcrPull 授权
 - Managed Prometheus Data Collection Rule 与 Association
 - Managed Prometheus Node / Kubernetes recording rule groups
@@ -56,5 +57,8 @@ cp tfbackend.sample dev.tfbackend
 - Managed Grafana 会自动集成 Azure Monitor Workspace，并补齐对 Monitor Workspace 的 Monitoring Data Reader / Monitoring Metrics Publisher 权限。
 - AKS 监控不只开启 monitor_metrics，还会创建 Managed Prometheus 的 DCR、DCRA，以及基础 recording rules。
 - AKS 默认开启 Azure Blob CSI Driver，对应 az aks create/update 的 --enable-blob-driver；如需关闭，可把 blob_driver_enabled 设为 false。
+- AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-27；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
+- 默认会同时部署 AKS 托管 Istio external ingress gateway；如不需要，可把 istio_external_ingress_gateway_enabled 设为 false。内部 gateway 仍通过 istio_internal_ingress_gateway_enabled 显式打开。
+- ASM 启用后，业务命名空间需要显式打 istio.io/rev=asm-X-Y 标签；不能使用 istio-injection=enabled。
 - 这一版 Terraform 会在 apply 阶段通过本机的 az、kubectl、helm、python3、skopeo 执行集群内软件安装，职责已经与 shell 版本基本对齐。
 - 如果只想保留基础 Azure 资源，不想在 Terraform 中安装 Karpenter 或 GPU Operator，可以把 gpu_operator_enabled 设为 false，或按需移除对应 null_resource。
