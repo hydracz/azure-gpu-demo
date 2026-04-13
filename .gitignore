@@ -5,6 +5,8 @@ aks.env
 #01-environment/charts/gpu-operator/
 01-environment/terraform/.generated-kubeconfig
 01-environment/terraform/.terraform/
+01-environment/terraform/*.tfvar
+01-environment/terraform/*.tfbackend
 01-environment/terraform/*.tfstate
 01-environment/terraform/*.tfstate.*
 01-environment/terraform/*.tfplan
