@@ -1,0 +1,6 @@
+docs/
+tests/
+scripts/
+*.docx
+vm-create-output.json
+tmp/

@@ -15,6 +15,7 @@ azure-gpu-demo/
 │   └── blob-csi/            # 后续独立的 Blob CSI 使用与挂载流程
 ├── 03-images/
 │   └── gpu-probe/           # GPU probe 测试应用：build / deploy / cleanup
+├── application-qwen-a100-demo/ # Qwen A100 图生图压测应用示例
 ├── aks.env.sample           # 全局环境变量模板
 └── common.sh                # 全局 shell 公共函数
 ```
@@ -33,5 +34,7 @@ azure-gpu-demo/
 如果你要切到声明式基础设施流程，使用 01-environment/terraform。
 
 如果你要构建并部署 GPU probe 测试应用，使用 03-images/gpu-probe。
+
+如果你要运行一个重型图生图 Serverless 压测目标，使用 application-qwen-a100-demo。
 
 各阶段具体说明见各自 README。
