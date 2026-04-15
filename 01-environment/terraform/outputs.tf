@@ -46,6 +46,14 @@ output "monitor_workspace_query_endpoint" {
   value = azurerm_monitor_workspace.main.query_endpoint
 }
 
+output "keda_prometheus_auth_name" {
+  value = var.keda_prometheus_auth_name
+}
+
+output "keda_prometheus_identity_name" {
+  value = var.keda_prometheus_identity_name
+}
+
 output "istio_kiali_namespace" {
   value = var.istio_kiali_enabled ? var.istio_kiali_namespace : null
 }

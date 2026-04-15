@@ -3,6 +3,7 @@
 # 99-cleanup.sh  —  清理所有 GPU 测试资源
 #
 # 默认行为:
+#   - 删除 qwen loadtest 工作负载
 #   - 删除测试应用
 #   - 卸载 GPU Operator
 #   - 卸载 Karpenter
@@ -26,6 +27,7 @@ CLEANUP_HELM_TIMEOUT="${CLEANUP_HELM_TIMEOUT:-120s}"
 CLEANUP_NAMESPACE_WAIT_TIMEOUT="${CLEANUP_NAMESPACE_WAIT_TIMEOUT:-300}"
 CLEANUP_RG_WAIT_TIMEOUT="${CLEANUP_RG_WAIT_TIMEOUT:-1200}"
 AKS_DELETE_TIMEOUT="${AKS_DELETE_TIMEOUT:-1800}"
+QWEN_DESTROY_SCRIPT="${ROOT_DIR}/04-workloads/qwen-loadtest-target/43-destroy.sh"
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 
@@ -37,6 +39,12 @@ if aks_exists; then
     --overwrite-existing \
     --only-show-errors \
     >/dev/null 2>&1 || true
+
+  if [[ "${CLEANUP_QWEN_LOADTEST:-true}" == "true" && -x "${QWEN_DESTROY_SCRIPT}" ]]; then
+    log "Deleting qwen loadtest resources before removing shared platform components"
+    DELETE_QWEN_LOADTEST_NAMESPACE="${DELETE_QWEN_LOADTEST_NAMESPACE:-true}" \
+      "${QWEN_DESTROY_SCRIPT}" || warn "Qwen loadtest cleanup did not finish cleanly; continuing cleanup"
+  fi
 
   # 先删除测试应用, 释放 Pod, 否则 nodeclaim 无法回收
   if kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then

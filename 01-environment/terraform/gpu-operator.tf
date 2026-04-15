@@ -23,6 +23,7 @@ resource "null_resource" "install_gpu_operator" {
     gpu_driver_allow_os_tag_alias     = tostring(var.gpu_driver_allow_os_tag_alias)
     gpu_driver_source_tag_2204        = local.gpu_driver_version_source_tag_2204
     gpu_driver_source_tag_2404        = local.gpu_driver_version_source_tag_2404
+    gpu_node_workload_label           = var.gpu_node_workload_label
     install_script_sha                = filesha256("${path.module}/scripts/install-gpu-operator.sh")
     uninstall_script_sha              = filesha256("${path.module}/scripts/uninstall-gpu-operator.sh")
     helper_script_sha                 = filesha256("${path.module}/scripts/common.sh")
@@ -52,6 +53,7 @@ resource "null_resource" "install_gpu_operator" {
       GPU_DRIVER_ALLOW_OS_TAG_ALIAS      = self.triggers.gpu_driver_allow_os_tag_alias
       GPU_DRIVER_VERSION_SOURCE_TAG_2204 = self.triggers.gpu_driver_source_tag_2204
       GPU_DRIVER_VERSION_SOURCE_TAG_2404 = self.triggers.gpu_driver_source_tag_2404
+      GPU_NODE_WORKLOAD_LABEL            = self.triggers.gpu_node_workload_label
     }
   }
 

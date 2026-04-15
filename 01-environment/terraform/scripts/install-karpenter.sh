@@ -19,7 +19,8 @@ for required_var in \
   KARPENTER_CRD_CHART_DIR KARPENTER_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG ACR_NAME VNET_SUBNET_ID \
   AZURE_NODE_RESOURCE_GROUP KUBELET_IDENTITY_CLIENT_ID NODE_IDENTITIES NETWORK_PLUGIN \
   NETWORK_PLUGIN_MODE NETWORK_POLICY SSH_PUBLIC_KEY GPU_NODE_IMAGE_FAMILY GPU_OS_DISK_SIZE_GB \
-  INSTALL_GPU_DRIVERS GPU_ZONES_CSV GPU_SKU_NAME GPU_TYPE SPOT_MAX_PRICE CONSOLIDATE_AFTER
+  INSTALL_GPU_DRIVERS GPU_ZONES_CSV GPU_SKU_NAME GPU_TYPE SPOT_MAX_PRICE CONSOLIDATE_AFTER \
+  GPU_NODE_WORKLOAD_LABEL
 do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
@@ -145,7 +146,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: gpu-test
+        workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
         spot_pool: "yes"
       annotations:
@@ -167,7 +168,7 @@ ${gpu_zones_yaml}
           values: ["${GPU_SKU_NAME}"]
       taints:
         - key: workload
-          value: gpu-test
+          value: ${GPU_NODE_WORKLOAD_LABEL}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -190,7 +191,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: gpu-test
+        workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
         spot_pool: "no"
     spec:
@@ -210,7 +211,7 @@ ${gpu_zones_yaml}
           values: ["${GPU_SKU_NAME}"]
       taints:
         - key: workload
-          value: gpu-test
+          value: ${GPU_NODE_WORKLOAD_LABEL}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com

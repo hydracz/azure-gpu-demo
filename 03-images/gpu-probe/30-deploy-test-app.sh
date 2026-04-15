@@ -57,7 +57,7 @@ spec:
       tolerations:
         - key: workload
           operator: Equal
-          value: gpu-test
+          value: ${APP_NODE_WORKLOAD_LABEL}
           effect: NoSchedule
         - key: kubernetes.azure.com/scalesetpriority
           operator: Equal
@@ -73,7 +73,7 @@ spec:
               - matchExpressions:
                   - key: workload
                     operator: In
-                    values: ["gpu-test"]
+                    values: ["${APP_NODE_WORKLOAD_LABEL}"]
                   - key: gputype
                     operator: In
                     values: ["${GPU_TYPE}"]

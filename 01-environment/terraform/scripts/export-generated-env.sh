@@ -32,6 +32,8 @@ mapping = {
     "service_mesh_mode": ["SERVICE_MESH_MODE"],
     "service_mesh_revisions": ["SERVICE_MESH_REVISIONS_CSV"],
     "monitor_workspace_query_endpoint": ["MONITOR_WORKSPACE_QUERY_ENDPOINT"],
+    "keda_prometheus_auth_name": ["KEDA_PROMETHEUS_AUTH_NAME", "QWEN_LOADTEST_KEDA_AUTH_NAME"],
+    "keda_prometheus_identity_name": ["KEDA_PROMETHEUS_IDENTITY_NAME"],
     "istio_kiali_namespace": ["ISTIO_KIALI_NAMESPACE"],
     "istio_kiali_proxy_client_id": ["ISTIO_KIALI_PROXY_CLIENT_ID"],
     "oidc_issuer_url": ["OIDC_ISSUER_URL", "AKS_OIDC_ISSUER"],

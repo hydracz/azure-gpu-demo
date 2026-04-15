@@ -293,6 +293,42 @@ variable "service_monitor_crd_enabled" {
   default     = true
 }
 
+variable "keda_prometheus_auth_name" {
+  description = "ClusterTriggerAuthentication name used by KEDA to query Azure Managed Prometheus"
+  type        = string
+  default     = "azure-managed-prometheus"
+}
+
+variable "keda_prometheus_identity_name" {
+  description = "User assigned managed identity name for shared KEDA Prometheus access"
+  type        = string
+  default     = "id-keda-prometheus"
+}
+
+variable "keda_prometheus_operator_namespace" {
+  description = "Namespace of the KEDA operator deployment"
+  type        = string
+  default     = "kube-system"
+}
+
+variable "keda_prometheus_operator_service_account_name" {
+  description = "Service account used by the KEDA operator deployment"
+  type        = string
+  default     = "keda-operator"
+}
+
+variable "keda_prometheus_operator_deployment_name" {
+  description = "Deployment name for the KEDA operator"
+  type        = string
+  default     = "keda-operator"
+}
+
+variable "keda_prometheus_federated_credential_name" {
+  description = "Optional override for the shared KEDA Prometheus federated credential name"
+  type        = string
+  default     = ""
+}
+
 variable "karpenter_namespace" {
   description = "Namespace for Karpenter"
   type        = string
@@ -333,6 +369,12 @@ variable "gpu_type" {
   description = "GPU type label applied to Karpenter nodes"
   type        = string
   default     = "rtxpro6000-bse"
+}
+
+variable "gpu_node_workload_label" {
+  description = "Workload label value applied to GPU nodes and used by GPU workloads"
+  type        = string
+  default     = "gpu-test"
 }
 
 variable "gpu_zones" {

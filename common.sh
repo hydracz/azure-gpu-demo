@@ -33,6 +33,189 @@ ensure_parent_dir() {
   mkdir -p "${target_dir}"
 }
 
+sanitize_stack_id() {
+  local raw_value="${1:-}"
+  local sanitized
+
+  sanitized="$(printf '%s' "${raw_value}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
+  sanitized="${sanitized#-}"
+  sanitized="${sanitized%-}"
+  printf '%s\n' "${sanitized}"
+}
+
+compact_lower_alnum() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9'
+}
+
+set_default_env() {
+  local name="$1"
+  local value="$2"
+
+  if [[ -z "${!name:-}" ]]; then
+    printf -v "${name}" '%s' "${value}"
+    export "${name}"
+  fi
+}
+
+apply_derived_config() {
+  local stack_id="${STACK_ID:-}"
+  local compact_stack_id=""
+
+  if [[ -n "${stack_id}" ]]; then
+    stack_id="$(sanitize_stack_id "${stack_id}")"
+    [[ -n "${stack_id}" ]] || fail "STACK_ID must contain at least one alphanumeric character"
+
+    compact_stack_id="$(compact_lower_alnum "${stack_id}")"
+    (( ${#compact_stack_id} <= 47 )) || fail "STACK_ID ${stack_id} is too long to derive a valid ACR name"
+
+    set_default_env STACK_ID "${stack_id}"
+    set_default_env RESOURCE_GROUP "rg-aks-${stack_id}"
+    set_default_env NETWORK_RESOURCE_GROUP "rg-aks-${stack_id}-net"
+    set_default_env CLUSTER_NAME "aks-${stack_id}"
+    set_default_env ACR_NAME "acr${compact_stack_id}"
+    set_default_env MONITOR_WORKSPACE_NAME "amw-aks-${stack_id}"
+    set_default_env LOG_ANALYTICS_WORKSPACE_NAME "log-aks-${stack_id}"
+    set_default_env GRAFANA_NAME "amg-aks-${stack_id}"
+    set_default_env VNET_NAME "vnet-aks-${stack_id}"
+    set_default_env KARPENTER_IDENTITY_NAME "id-${stack_id}"
+    set_default_env AKS_IDENTITY_NAME "id-aks-${stack_id}"
+    set_default_env KEDA_PROMETHEUS_IDENTITY_NAME "id-${stack_id}-keda-prom"
+  fi
+
+  set_default_env AKS_DIAGNOSTIC_SETTING_NAME "aks-all-logs"
+  set_default_env MONITOR_WORKSPACE_PUBLIC_NETWORK_ACCESS_ENABLED "true"
+  set_default_env GRAFANA_MAJOR_VERSION "11"
+  set_default_env SYSTEM_POOL_NAME "sysd4"
+  set_default_env SYSTEM_VM_SIZE "Standard_D4ads_v6"
+  set_default_env SYSTEM_NODE_COUNT "3"
+  set_default_env AKS_ADMIN_USERNAME "azureuser"
+  set_default_env VNET_ADDRESS_PREFIX "10.240.0.0/16"
+  set_default_env AKS_SUBNET_NAME "snet-aks-underlay"
+  set_default_env AKS_SUBNET_ADDRESS_PREFIX "10.240.0.0/20"
+  set_default_env SERVICE_CIDR "172.16.32.0/19"
+  set_default_env DNS_SERVICE_IP "172.16.32.10"
+  set_default_env AKS_ENABLE_BLOB_DRIVER "true"
+  set_default_env ISTIO_SERVICE_MESH_ENABLED "true"
+  set_default_env ISTIO_REVISIONS_CSV "asm-1-27"
+  set_default_env SERVICE_MESH_REVISIONS_CSV "${ISTIO_REVISIONS_CSV}"
+  set_default_env ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED "true"
+  set_default_env ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED "true"
+  set_default_env ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS "2"
+  set_default_env ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS "5"
+  set_default_env ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS "2"
+  set_default_env ISTIO_EXTERNAL_INGRESS_GATEWAY_MAX_REPLICAS "5"
+  set_default_env ISTIO_KIALI_ENABLED "true"
+  set_default_env ISTIO_KIALI_NAMESPACE "aks-istio-system"
+  set_default_env ISTIO_KIALI_REPLICAS "1"
+  set_default_env ISTIO_KIALI_VIEW_ONLY_MODE "true"
+  set_default_env ISTIO_KIALI_OPERATOR_CHART_VERSION "2.20.0"
+  set_default_env ISTIO_KIALI_PROMETHEUS_RETENTION_PERIOD "30d"
+  set_default_env ISTIO_KIALI_PROMETHEUS_SCRAPE_INTERVAL "30s"
+  set_default_env ISTIO_KIALI_PROXY_IDENTITY_NAME "id-aks-istio-kiali-proxy"
+  set_default_env ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME "azuremonitor-query"
+  set_default_env ISTIO_KIALI_PROXY_SERVICE_NAME "azuremonitor-query"
+  set_default_env GRAFANA_ADMIN_PRINCIPAL_IDS ""
+  set_default_env PROMETHEUS_RULE_GROUP_ENABLED "true"
+  set_default_env PROMETHEUS_RULE_GROUP_INTERVAL "PT1M"
+  set_default_env SERVICE_MONITOR_CRD_ENABLED "true"
+  set_default_env KEDA_PROMETHEUS_AUTH_NAME "azure-managed-prometheus"
+  set_default_env KEDA_PROMETHEUS_IDENTITY_NAME "id-keda-prometheus"
+  set_default_env KEDA_PROMETHEUS_OPERATOR_NAMESPACE "kube-system"
+  set_default_env KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME "keda-operator"
+  set_default_env KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME "keda-operator"
+  set_default_env KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME "${KEDA_PROMETHEUS_IDENTITY_NAME}-keda-operator"
+
+  set_default_env KARPENTER_NAMESPACE "kube-system"
+  set_default_env KARPENTER_SERVICE_ACCOUNT "karpenter-sa"
+  set_default_env KARPENTER_IMAGE_REPO "quay.io/hydracz/karpenter-controller"
+  set_default_env KARPENTER_IMAGE_TAG "v20260323-dev"
+
+  set_default_env GPU_SKU_NAME "Standard_NC128lds_xl_RTXPRO6000BSE_v6"
+  set_default_env GPU_TYPE "rtxpro6000-bse"
+  if [[ -z "${GPU_ZONES:-}" && -n "${LOCATION:-}" ]]; then
+    set_default_env GPU_ZONES "${LOCATION}-1"
+  fi
+  set_default_env GPU_NODE_IMAGE_FAMILY "Ubuntu2404"
+  set_default_env GPU_OS_DISK_SIZE_GB "1024"
+  set_default_env INSTALL_GPU_DRIVERS "false"
+  set_default_env CONSOLIDATE_AFTER "10m"
+  set_default_env SPOT_MAX_PRICE "-1"
+  set_default_env GPU_OPERATOR_ENABLED "true"
+  set_default_env GPU_OPERATOR_NAMESPACE "gpu-operator"
+  set_default_env GPU_DRIVER_CR_NAME "rtxpro6000-azure"
+  set_default_env GPU_DRIVER_NODE_SELECTOR_KEY "karpenter.azure.com/sku-gpu-name"
+  set_default_env GPU_DRIVER_NODE_SELECTOR_VALUE ""
+  set_default_env GPU_DRIVER_SOURCE_REPOSITORY "docker.io/yingeli"
+  set_default_env GPU_DRIVER_IMAGE "driver"
+  set_default_env GPU_DRIVER_VERSION "580.105.08"
+  set_default_env GPU_DRIVER_REQUIRE_MATCHING_NODES "false"
+  set_default_env GPU_DRIVER_SYNC_ENABLED "true"
+  set_default_env GPU_DRIVER_SYNC_USE_SUDO "false"
+  set_default_env GPU_DRIVER_ALLOW_OS_TAG_ALIAS "false"
+  set_default_env GPU_DRIVER_VERSION_SOURCE_TAG_2204 "${GPU_DRIVER_VERSION}-ubuntu22.04"
+  set_default_env GPU_DRIVER_VERSION_SOURCE_TAG_2404 "${GPU_DRIVER_VERSION}-ubuntu24.04"
+
+  set_default_env GPU_NODE_WORKLOAD_LABEL "gpu-test"
+  set_default_env APP_NODE_WORKLOAD_LABEL "${GPU_NODE_WORKLOAD_LABEL}"
+  set_default_env QWEN_LOADTEST_NODE_WORKLOAD_LABEL "${GPU_NODE_WORKLOAD_LABEL}"
+
+  set_default_env APP_NAMESPACE "gpu-test"
+  set_default_env APP_NAME "gpu-probe"
+  set_default_env TEST_IMAGE_REPOSITORY "aks/gpu-probe"
+  set_default_env TEST_IMAGE_TAG "latest"
+  set_default_env APP_MIN_REPLICAS "1"
+  set_default_env APP_MAX_REPLICAS "2"
+  set_default_env APP_REQUEST_CPU "1000m"
+  set_default_env APP_LIMIT_CPU "2000m"
+  set_default_env APP_REQUEST_MEMORY "4Gi"
+  set_default_env APP_LIMIT_MEMORY "8Gi"
+  set_default_env APP_REQUEST_GPU "1"
+  set_default_env LOCAL_FORWARD_PORT "18080"
+
+  set_default_env QWEN_LOADTEST_NAMESPACE "qwen-loadtest"
+  set_default_env QWEN_LOADTEST_NAME "qwen-loadtest-target"
+  set_default_env QWEN_LOADTEST_SERVICE_NAME "${QWEN_LOADTEST_NAME}"
+  set_default_env QWEN_LOADTEST_SOURCE_LOGIN_SERVER "qwenloadtestsea3414.azurecr.io"
+  set_default_env QWEN_LOADTEST_SOURCE_USERNAME "${QWEN_LOADTEST_SOURCE_LOGIN_SERVER%%.*}"
+  set_default_env QWEN_LOADTEST_SOURCE_IMAGE_REPOSITORY "qwen-loadtest-target"
+  set_default_env QWEN_LOADTEST_SOURCE_IMAGE_TAG "sea-a100-failfast-20260413"
+  set_default_env QWEN_LOADTEST_TARGET_REPOSITORY "aks/qwen-loadtest-target"
+  set_default_env QWEN_LOADTEST_CONTAINER_PORT "8080"
+  set_default_env QWEN_LOADTEST_SERVICE_PORT "8080"
+  set_default_env QWEN_LOADTEST_GATEWAY_NAME "qwen-loadtest-external"
+  set_default_env QWEN_LOADTEST_TLS_SECRET_NAME "qwen-loadtest-target-tls"
+  set_default_env QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE "aks-istio-ingress"
+  set_default_env QWEN_LOADTEST_GATEWAY_SELECTOR "aks-istio-ingressgateway-external"
+  set_default_env QWEN_LOADTEST_KEDA_AUTH_NAME "${KEDA_PROMETHEUS_AUTH_NAME}"
+  set_default_env QWEN_LOADTEST_KEDA_OPERATOR_NAMESPACE "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}"
+  set_default_env QWEN_LOADTEST_KEDA_OPERATOR_SERVICE_ACCOUNT_NAME "${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME}"
+  set_default_env QWEN_LOADTEST_MIN_REPLICAS "1"
+  set_default_env QWEN_LOADTEST_MAX_REPLICAS "8"
+  set_default_env QWEN_LOADTEST_POLLING_INTERVAL "5"
+  set_default_env QWEN_LOADTEST_COOLDOWN_PERIOD "60"
+  set_default_env QWEN_LOADTEST_KEDA_THRESHOLD "1"
+  set_default_env QWEN_LOADTEST_KEDA_ACTIVATION_THRESHOLD "1"
+  set_default_env QWEN_LOADTEST_GPU_REQUEST "1"
+  set_default_env QWEN_LOADTEST_CPU_REQUEST "4"
+  set_default_env QWEN_LOADTEST_CPU_LIMIT "8"
+  set_default_env QWEN_LOADTEST_MEMORY_REQUEST "24Gi"
+  set_default_env QWEN_LOADTEST_MEMORY_LIMIT "32Gi"
+  set_default_env QWEN_LOADTEST_TEST_CONCURRENCY "2"
+  set_default_env QWEN_LOADTEST_TEST_REQUEST_TIMEOUT "180"
+  set_default_env QWEN_LOADTEST_TEST_MODE "predict"
+  set_default_env QWEN_LOADTEST_TEST_PATH "/predict"
+  set_default_env QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY "true"
+  if [[ -z "${QWEN_LOADTEST_GPU_TYPE:-}" && -n "${GPU_TYPE:-}" ]]; then
+    set_default_env QWEN_LOADTEST_GPU_TYPE "${GPU_TYPE}"
+  fi
+  if [[ -z "${QWEN_LOADTEST_ISTIO_REVISION:-}" && -n "${ISTIO_REVISIONS_CSV:-}" ]]; then
+    set_default_env QWEN_LOADTEST_ISTIO_REVISION "${ISTIO_REVISIONS_CSV%%,*}"
+  fi
+
+  set_default_env TAGS_ENVIRONMENT "dev"
+  set_default_env TAGS_OWNER "platform"
+}
+
 load_env() {
   if [[ ! -f "${ENV_FILE}" ]]; then
     fail "missing env file: ${ENV_FILE}. Copy aks.env.sample to aks.env first, or set AKS_ENV_FILE to an existing env file."
@@ -41,10 +224,12 @@ load_env() {
   set -a
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
+  apply_derived_config
   if [[ -f "${GENERATED_ENV_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${GENERATED_ENV_FILE}"
   fi
+  apply_derived_config
   set +a
 }
 
@@ -206,16 +391,34 @@ import sys
 path = Path(sys.argv[1])
 key = sys.argv[2]
 value = sys.argv[3]
+
+def shell_double_quote(raw: str) -> str:
+  return raw.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
 lines = path.read_text().splitlines()
 updated = []
 for line in lines:
     if line.startswith(f"{key}="):
-        updated.append(f'{key}="{value}"')
+        updated.append(f'{key}="{shell_double_quote(value)}"')
     else:
         updated.append(line)
 path.write_text("\n".join(updated) + "\n")
 PY
   else
-    printf '%s="%s"\n' "${key}" "${value}" >>"${GENERATED_ENV_FILE}"
+    python3 - "${GENERATED_ENV_FILE}" "${key}" "${value}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+
+def shell_double_quote(raw: str) -> str:
+  return raw.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
+with path.open('a', encoding='utf-8') as handle:
+  handle.write(f'{key}="{shell_double_quote(value)}"\n')
+PY
   fi
 }
+

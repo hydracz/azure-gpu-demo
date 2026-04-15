@@ -17,7 +17,7 @@ for required_var in \
   GPU_OPERATOR_NAMESPACE GPU_DRIVER_CR_NAME GPU_DRIVER_NODE_SELECTOR_KEY GPU_DRIVER_NODE_SELECTOR_VALUE \
   GPU_DRIVER_SOURCE_REPOSITORY GPU_DRIVER_IMAGE GPU_DRIVER_VERSION GPU_DRIVER_REQUIRE_MATCHING_NODES \
   GPU_DRIVER_SYNC_ENABLED GPU_DRIVER_SYNC_USE_SUDO GPU_DRIVER_ALLOW_OS_TAG_ALIAS \
-  GPU_DRIVER_VERSION_SOURCE_TAG_2204 GPU_DRIVER_VERSION_SOURCE_TAG_2404
+  GPU_DRIVER_VERSION_SOURCE_TAG_2204 GPU_DRIVER_VERSION_SOURCE_TAG_2404 GPU_NODE_WORKLOAD_LABEL
 do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
@@ -105,7 +105,7 @@ helm upgrade --install gpu-operator \
   --set daemonsets.tolerations[0].effect=NoSchedule \
   --set daemonsets.tolerations[1].key=workload \
   --set daemonsets.tolerations[1].operator=Equal \
-  --set daemonsets.tolerations[1].value=gpu-test \
+  --set daemonsets.tolerations[1].value=${GPU_NODE_WORKLOAD_LABEL} \
   --set daemonsets.tolerations[1].effect=NoSchedule \
   --set daemonsets.tolerations[2].key=kubernetes.azure.com/scalesetpriority \
   --set daemonsets.tolerations[2].operator=Equal \
@@ -140,7 +140,7 @@ spec:
   tolerations:
     - key: "workload"
       operator: "Equal"
-      value: "gpu-test"
+      value: "${GPU_NODE_WORKLOAD_LABEL}"
       effect: "NoSchedule"
     - key: "kubernetes.azure.com/scalesetpriority"
       operator: "Equal"

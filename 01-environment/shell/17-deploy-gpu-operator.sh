@@ -101,7 +101,7 @@ ensure_gpu_operator_controller() {
     --set "daemonsets.tolerations[0].effect=NoSchedule" \
     --set "daemonsets.tolerations[1].key=workload" \
     --set "daemonsets.tolerations[1].operator=Equal" \
-    --set "daemonsets.tolerations[1].value=gpu-test" \
+    --set "daemonsets.tolerations[1].value=${GPU_NODE_WORKLOAD_LABEL}" \
     --set "daemonsets.tolerations[1].effect=NoSchedule" \
     --set "daemonsets.tolerations[2].key=kubernetes.azure.com/scalesetpriority" \
     --set "daemonsets.tolerations[2].operator=Equal" \
@@ -197,7 +197,7 @@ spec:
   tolerations:
     - key: "workload"
       operator: "Equal"
-      value: "gpu-test"
+      value: "${GPU_NODE_WORKLOAD_LABEL}"
       effect: "NoSchedule"
     - key: "kubernetes.azure.com/scalesetpriority"
       operator: "Equal"

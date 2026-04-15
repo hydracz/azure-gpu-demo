@@ -7,7 +7,7 @@
 - 14-sync-helm-images.sh: 独立把 Karpenter / GPU Operator 等用户侧 Helm 镜像同步到当前 ACR。
 - 05-create-network.sh: 创建或复用自定义 VNet/Subnet。
 - 06-destroy-network.sh: 删除单独的网络资源组。
-- 10-create-aks.sh: 创建 ACR、监控资源和 AKS 集群。
+- 10-create-aks.sh: 创建 ACR、监控资源和 AKS 集群，并前置启用 AKS managed Istio 与共享 KEDA Prometheus 认证。
 - 11-delete-aks.sh: 删除 AKS。
 - 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool。
 - 16-destroy-karpenter.sh: 卸载 Karpenter。
@@ -19,7 +19,7 @@
 
 - 已安装并登录 Azure CLI。
 - 已安装 kubectl、helm、docker、python3。
-- 根目录下准备好 aks.env。
+- 根目录下准备好 aks.env。它现在也是 Terraform 的统一输入源，不再只是 shell 专用配置。
 
 ```bash
 cp aks.env.sample aks.env
@@ -42,6 +42,13 @@ cp aks.env.sample aks.env
 shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下。
 
 默认行为：10-create-aks.sh 会显式开启 AKS Azure Blob CSI Driver；如果集群已存在但该驱动未开启，脚本也会执行一次 `az aks update --enable-blob-driver` 做对齐。
+
+同时，10-create-aks.sh 现在会默认确保以下平台能力已经就绪：
+
+- AKS managed Istio (`asm-1-27`)
+- external ingress gateway
+- internal ingress gateway
+- KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 `ClusterTriggerAuthentication`
 
 ```bash
 cp -r /path/to/karpenter-provider-azure/charts/karpenter-crd 01-environment/charts/

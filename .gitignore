@@ -20,4 +20,5 @@ validation-artifacts/
 *.tfstate
 *.tfstate.backup
 *.tfvar
+*.auto.tfvars.json
 *.tfbackend

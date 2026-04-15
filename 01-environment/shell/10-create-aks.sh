@@ -21,10 +21,23 @@ ensure_tooling
 : "${AKS_CREATE_RECOVERY_CHECKS:=12}"
 : "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS:=10}"
 : "${AKS_ENABLE_BLOB_DRIVER:=true}"
+: "${ISTIO_SERVICE_MESH_ENABLED:=true}"
+: "${ISTIO_REVISIONS_CSV:=${SERVICE_MESH_REVISIONS_CSV:-asm-1-27}}"
+: "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED:=true}"
+: "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED:=true}"
+: "${KEDA_PROMETHEUS_AUTH_NAME:=azure-managed-prometheus}"
+: "${KEDA_PROMETHEUS_IDENTITY_NAME:=id-keda-prometheus}"
+: "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE:=kube-system}"
+: "${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME:=keda-operator}"
+: "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME:=keda-operator}"
+: "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME:=${KEDA_PROMETHEUS_IDENTITY_NAME}-keda-operator}"
 
 [[ "${AKS_CREATE_RECOVERY_CHECKS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_CHECKS must be an integer, got: ${AKS_CREATE_RECOVERY_CHECKS}"
 [[ "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_INTERVAL_SECONDS must be an integer, got: ${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
 [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" || "${AKS_ENABLE_BLOB_DRIVER}" == "false" ]] || fail "AKS_ENABLE_BLOB_DRIVER must be true or false, got: ${AKS_ENABLE_BLOB_DRIVER}"
+[[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" || "${ISTIO_SERVICE_MESH_ENABLED}" == "false" ]] || fail "ISTIO_SERVICE_MESH_ENABLED must be true or false, got: ${ISTIO_SERVICE_MESH_ENABLED}"
+[[ "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}"
+[[ "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}"
 
 require_env \
   AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
@@ -32,8 +45,338 @@ require_env \
   GRAFANA_NAME SYSTEM_POOL_NAME SYSTEM_VM_SIZE SYSTEM_NODE_COUNT \
   VNET_SUBNET_ID
 
+ensure_az_extension() {
+  local extension_name="$1"
+
+  if az extension show --name "${extension_name}" --only-show-errors >/dev/null 2>&1; then
+    log "Azure CLI extension ${extension_name} already installed"
+    return 0
+  fi
+
+  log "Installing Azure CLI extension ${extension_name}"
+  az extension add --name "${extension_name}" --only-show-errors >/dev/null
+}
+
+resolve_desired_istio_revision() {
+  local revision="${ISTIO_REVISIONS_CSV:-${SERVICE_MESH_REVISIONS_CSV:-}}"
+
+  IFS=',' read -r revision _ <<<"${revision}"
+  [[ -n "${revision}" ]] || fail "ISTIO_REVISIONS_CSV must contain at least one Azure Service Mesh revision"
+  printf '%s\n' "${revision}"
+}
+
+wait_for_namespace() {
+  local namespace="$1"
+  local attempts="${2:-60}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kubectl get namespace "${namespace}" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    warn "Waiting for namespace ${namespace} (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "Namespace ${namespace} was not created in time"
+}
+
+wait_for_service() {
+  local namespace="$1"
+  local name="$2"
+  local attempts="${3:-60}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kubectl get service "${name}" -n "${namespace}" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    warn "Waiting for service ${namespace}/${name} (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "Service ${namespace}/${name} was not created in time"
+}
+
+wait_for_deployment() {
+  local namespace="$1"
+  local name="$2"
+  local attempts="${3:-60}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kubectl get deployment "${name}" -n "${namespace}" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    warn "Waiting for deployment ${namespace}/${name} (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "Deployment ${namespace}/${name} was not created in time"
+}
+
+wait_for_crd() {
+  local name="$1"
+  local attempts="${2:-60}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kubectl get crd "${name}" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    warn "Waiting for CRD ${name} (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "CRD ${name} was not created in time"
+}
+
+current_service_mesh_revisions() {
+  kubectl get mutatingwebhookconfigurations -o name 2>/dev/null |
+    grep -oE 'asm-[0-9]+-[0-9]+' |
+    sort -u |
+    paste -sd, - || true
+}
+
+wait_for_service_mesh_revision() {
+  local revision="$1"
+  local attempts="${2:-60}"
+  local attempt
+  local revisions
+
+  for attempt in $(seq 1 "${attempts}"); do
+    revisions="$(current_service_mesh_revisions)"
+    if [[ ",${revisions}," == *",${revision},"* ]]; then
+      return 0
+    fi
+
+    warn "Waiting for Azure Service Mesh revision ${revision} (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "Azure Service Mesh revision ${revision} was not ready in time"
+}
+
+keda_operator_client_id_annotation() {
+  kubectl get serviceaccount "${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME}" \
+    -n "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" \
+    -o jsonpath="{.metadata.annotations['azure\.workload\.identity/client-id']}" 2>/dev/null || true
+}
+
+keda_operator_use_label() {
+  kubectl get deployment "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME}" \
+    -n "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" \
+    -o jsonpath="{.spec.template.metadata.labels['azure\.workload\.identity/use']}" 2>/dev/null || true
+}
+
+keda_operator_has_workload_identity_env() {
+  local env_names
+
+  env_names="$(kubectl get pods -n "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" -l app.kubernetes.io/name=keda-operator -o jsonpath='{.items[0].spec.containers[0].env[*].name}' 2>/dev/null || true)"
+  [[ "${env_names}" == *AZURE_FEDERATED_TOKEN_FILE* ]]
+}
+
+ensure_azure_service_mesh() {
+  local attempt
+  local current_revisions=""
+
+  [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]] || return 0
+
+  current_revisions="$(current_service_mesh_revisions)"
+  if [[ -z "${current_revisions}" && "${aks_cluster_created:-false}" == "true" ]]; then
+    for attempt in $(seq 1 18); do
+      current_revisions="$(current_service_mesh_revisions)"
+      if [[ ",${current_revisions}," == *",${desired_istio_revision},"* ]]; then
+        break
+      fi
+
+      warn "Waiting for Azure Service Mesh revision ${desired_istio_revision} from initial cluster provisioning (${attempt}/18)"
+      sleep 10
+    done
+  fi
+
+  if [[ -n "${current_revisions}" && ",${current_revisions}," != *",${desired_istio_revision},"* ]]; then
+    fail "AKS cluster ${CLUSTER_NAME} already exposes Azure Service Mesh revision(s) ${current_revisions}, expected ${desired_istio_revision}. Recreate or upgrade the cluster before continuing."
+  fi
+
+  if [[ -z "${current_revisions}" ]]; then
+    log "Enabling Azure Service Mesh revision ${desired_istio_revision}"
+    az aks mesh enable \
+      --resource-group "${RESOURCE_GROUP}" \
+      --name "${CLUSTER_NAME}" \
+      --revision "${desired_istio_revision}" \
+      --only-show-errors \
+      >/dev/null
+  else
+    log "Azure Service Mesh revision ${desired_istio_revision} already enabled"
+  fi
+
+  wait_for_namespace aks-istio-system
+  wait_for_namespace aks-istio-ingress
+  wait_for_service_mesh_revision "${desired_istio_revision}"
+
+  if [[ "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" ]]; then
+    if ! kubectl get service aks-istio-ingressgateway-external -n aks-istio-ingress >/dev/null 2>&1; then
+      log "Enabling Azure Service Mesh external ingress gateway"
+      az aks mesh enable-ingress-gateway \
+        --resource-group "${RESOURCE_GROUP}" \
+        --name "${CLUSTER_NAME}" \
+        --ingress-gateway-type External \
+        --only-show-errors \
+        >/dev/null
+    fi
+    wait_for_service aks-istio-ingress aks-istio-ingressgateway-external
+  fi
+
+  if [[ "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" ]]; then
+    if ! kubectl get service aks-istio-ingressgateway-internal -n aks-istio-ingress >/dev/null 2>&1; then
+      log "Enabling Azure Service Mesh internal ingress gateway"
+      az aks mesh enable-ingress-gateway \
+        --resource-group "${RESOURCE_GROUP}" \
+        --name "${CLUSTER_NAME}" \
+        --ingress-gateway-type Internal \
+        --only-show-errors \
+        >/dev/null
+    fi
+    wait_for_service aks-istio-ingress aks-istio-ingressgateway-internal
+  fi
+}
+
+ensure_keda_prometheus_auth() {
+  local current_annotation=""
+  local current_label=""
+  local keda_prometheus_client_id=""
+  local keda_prometheus_principal_id=""
+  local restart_required="false"
+  local federated_issuer=""
+  local federated_subject=""
+
+  wait_for_deployment "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME}"
+  wait_for_crd clustertriggerauthentications.keda.sh
+
+  if ! az identity show --name "${KEDA_PROMETHEUS_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --only-show-errors >/dev/null 2>&1; then
+    log "Creating shared KEDA managed identity ${KEDA_PROMETHEUS_IDENTITY_NAME}"
+    az identity create \
+      --name "${KEDA_PROMETHEUS_IDENTITY_NAME}" \
+      --resource-group "${RESOURCE_GROUP}" \
+      --location "${LOCATION}" \
+      --only-show-errors \
+      >/dev/null
+  else
+    log "Shared KEDA managed identity ${KEDA_PROMETHEUS_IDENTITY_NAME} already exists"
+  fi
+
+  keda_prometheus_client_id="$(az identity show --name "${KEDA_PROMETHEUS_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --query clientId -o tsv --only-show-errors)"
+  keda_prometheus_principal_id="$(az identity show --name "${KEDA_PROMETHEUS_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --query principalId -o tsv --only-show-errors)"
+
+  if [[ -z "$(az role assignment list --assignee-object-id "${keda_prometheus_principal_id}" --scope "${monitor_workspace_id}" --query "[?roleDefinitionName=='Monitoring Data Reader'].id | [0]" -o tsv --only-show-errors)" ]]; then
+    log "Granting Monitoring Data Reader on ${monitor_workspace_id} to ${KEDA_PROMETHEUS_IDENTITY_NAME}"
+    az role assignment create \
+      --assignee-object-id "${keda_prometheus_principal_id}" \
+      --assignee-principal-type ServicePrincipal \
+      --role "Monitoring Data Reader" \
+      --scope "${monitor_workspace_id}" \
+      --only-show-errors \
+      >/dev/null
+  fi
+
+  if az identity federated-credential show \
+    --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" \
+    --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --only-show-errors >/dev/null 2>&1; then
+    federated_issuer="$(az identity federated-credential show --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --query issuer -o tsv --only-show-errors)"
+    federated_subject="$(az identity federated-credential show --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" --resource-group "${RESOURCE_GROUP}" --query subject -o tsv --only-show-errors)"
+
+    if [[ "${federated_issuer}" != "${aks_oidc_issuer}" || "${federated_subject}" != "system:serviceaccount:${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}:${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME}" ]]; then
+      log "Refreshing federated credential ${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}"
+      az identity federated-credential delete \
+        --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" \
+        --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" \
+        --resource-group "${RESOURCE_GROUP}" \
+        --only-show-errors \
+        >/dev/null
+    fi
+  fi
+
+  if ! az identity federated-credential show \
+    --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" \
+    --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" \
+    --resource-group "${RESOURCE_GROUP}" \
+    --only-show-errors >/dev/null 2>&1; then
+    log "Creating federated credential ${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}"
+    az identity federated-credential create \
+      --name "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME}" \
+      --identity-name "${KEDA_PROMETHEUS_IDENTITY_NAME}" \
+      --resource-group "${RESOURCE_GROUP}" \
+      --issuer "${aks_oidc_issuer}" \
+      --subject "system:serviceaccount:${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}:${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME}" \
+      --audiences api://AzureADTokenExchange \
+      --only-show-errors \
+      >/dev/null
+    restart_required="true"
+  fi
+
+  current_annotation="$(keda_operator_client_id_annotation)"
+  if [[ "${current_annotation}" != "${keda_prometheus_client_id}" ]]; then
+    log "Annotating KEDA operator service account with workload identity client id"
+    kubectl annotate serviceaccount "${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME}" \
+      -n "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" \
+      azure.workload.identity/client-id="${keda_prometheus_client_id}" \
+      --overwrite >/dev/null
+    restart_required="true"
+  fi
+
+  current_label="$(keda_operator_use_label)"
+  if [[ "${current_label}" != "true" ]]; then
+    log "Patching KEDA operator deployment for Azure workload identity mutation"
+    kubectl patch deployment "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME}" \
+      -n "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" \
+      --type merge \
+      --patch '{"spec":{"template":{"metadata":{"labels":{"azure.workload.identity/use":"true"}}}}}' >/dev/null
+    restart_required="true"
+  fi
+
+  cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: keda.sh/v1alpha1
+kind: ClusterTriggerAuthentication
+metadata:
+  name: ${KEDA_PROMETHEUS_AUTH_NAME}
+spec:
+  podIdentity:
+    provider: azure-workload
+    identityId: ${keda_prometheus_client_id}
+EOF
+
+  if ! keda_operator_has_workload_identity_env; then
+    restart_required="true"
+  fi
+
+  if [[ "${restart_required}" == "true" ]]; then
+    log "Restarting KEDA operator to pick up shared Prometheus workload identity"
+    kubectl rollout restart deployment/${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME} -n ${KEDA_PROMETHEUS_OPERATOR_NAMESPACE} >/dev/null
+  fi
+
+  kubectl rollout status deployment/${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME} -n ${KEDA_PROMETHEUS_OPERATOR_NAMESPACE} --timeout=10m >/dev/null
+
+  write_generated_env KEDA_PROMETHEUS_AUTH_NAME "${KEDA_PROMETHEUS_AUTH_NAME}"
+  write_generated_env KEDA_PROMETHEUS_IDENTITY_NAME "${KEDA_PROMETHEUS_IDENTITY_NAME}"
+  write_generated_env KEDA_PROMETHEUS_CLIENT_ID "${keda_prometheus_client_id}"
+  write_generated_env QWEN_LOADTEST_KEDA_AUTH_NAME "${KEDA_PROMETHEUS_AUTH_NAME}"
+}
+
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
-az extension add --name amg --upgrade --only-show-errors >/dev/null
+ensure_az_extension amg
+
+desired_istio_revision=""
+aks_cluster_created="false"
+if [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]]; then
+  desired_istio_revision="$(resolve_desired_istio_revision)"
+fi
 
 resolve_current_principal_id() {
   local account_type account_name principal_id
@@ -164,9 +507,14 @@ fi
 create_aks_cluster() {
   local create_output cluster_state attempt
   local -a blob_driver_args=()
+  local -a mesh_args=()
 
   if [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" ]]; then
     blob_driver_args+=(--enable-blob-driver)
+  fi
+
+  if [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]]; then
+    mesh_args+=(--enable-azure-service-mesh --revision "${desired_istio_revision}")
   fi
 
   if create_output="$(az aks create \
@@ -189,6 +537,7 @@ create_aks_cluster() {
     --enable-azure-monitor-metrics \
     --azure-monitor-workspace-resource-id "${monitor_workspace_id}" \
     --grafana-resource-id "${grafana_id}" \
+    "${mesh_args[@]}" \
     "${blob_driver_args[@]}" \
     --generate-ssh-keys \
     --only-show-errors \
@@ -230,6 +579,7 @@ create_aks_cluster() {
 if ! aks_exists; then
   log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${VNET_SUBNET_ID}"
   create_aks_cluster
+  aks_cluster_created="true"
 else
   log "AKS cluster ${CLUSTER_NAME} already exists"
 fi
@@ -299,6 +649,11 @@ aks_oidc_issuer="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CL
 aks_endpoint="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "fqdn" -o tsv --only-show-errors)"
 node_resource_group="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "${CLUSTER_NAME}" --query "nodeResourceGroup" -o tsv --only-show-errors)"
 
+ensure_azure_service_mesh
+ensure_keda_prometheus_auth
+
+service_mesh_revisions_csv="$(current_service_mesh_revisions)"
+
 write_generated_env AZ_SUBSCRIPTION_ID "${AZ_SUBSCRIPTION_ID}"
 write_generated_env LOCATION "${LOCATION}"
 write_generated_env RESOURCE_GROUP "${RESOURCE_GROUP}"
@@ -316,6 +671,9 @@ write_generated_env NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env AZURE_NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env AKS_SUBNET_ID "${VNET_SUBNET_ID}"
 write_generated_env VNET_SUBNET_ID "${VNET_SUBNET_ID}"
+write_generated_env SERVICE_MESH_MODE "$([[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]] && printf '%s' Istio || printf '%s' Disabled)"
+write_generated_env ISTIO_REVISIONS_CSV "${service_mesh_revisions_csv}"
+write_generated_env SERVICE_MESH_REVISIONS_CSV "${service_mesh_revisions_csv}"
 write_generated_env MONITOR_WORKSPACE_ID "${monitor_workspace_id}"
 write_generated_env MONITOR_WORKSPACE_QUERY_ENDPOINT "${monitor_workspace_query_endpoint}"
 write_generated_env LOG_ANALYTICS_WORKSPACE_ID "${log_analytics_workspace_id}"
@@ -324,8 +682,10 @@ write_generated_env KUBECTL_CREDENTIALS_COMMAND "az aks get-credentials --resour
 
 log "Cluster bootstrap completed (no cluster-autoscaler, no user node pools)"
 log "AKS network mode      → Azure CNI overlay + Cilium"
+log "AKS service mesh      → ${service_mesh_revisions_csv:-disabled}"
 log "AKS Blob CSI Driver   → ${AKS_ENABLE_BLOB_DRIVER}"
 log "AKS node subnet       → ${VNET_SUBNET_ID}"
 log "AKS diagnostic logs → Log Analytics Workspace ${LOG_ANALYTICS_WORKSPACE_NAME}"
+log "KEDA Prometheus auth  → ${KEDA_PROMETHEUS_AUTH_NAME}"
 log "Next step: run 01-environment/shell/15-deploy-karpenter.sh to deploy Karpenter"
 kubectl get nodes -L agentpool

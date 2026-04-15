@@ -10,6 +10,10 @@ resource "azurerm_role_assignment" "karpenter_node_rg_vm_contributor" {
   role_definition_name             = "Virtual Machine Contributor"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_node_rg_network_contributor" {
@@ -17,6 +21,10 @@ resource "azurerm_role_assignment" "karpenter_node_rg_network_contributor" {
   role_definition_name             = "Network Contributor"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_node_rg_identity_operator" {
@@ -24,6 +32,10 @@ resource "azurerm_role_assignment" "karpenter_node_rg_identity_operator" {
   role_definition_name             = "Managed Identity Operator"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_vnet_reader" {
@@ -31,6 +43,10 @@ resource "azurerm_role_assignment" "karpenter_vnet_reader" {
   role_definition_name             = "Reader"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_subnet_network_contributor" {
@@ -38,6 +54,10 @@ resource "azurerm_role_assignment" "karpenter_subnet_network_contributor" {
   role_definition_name             = "Network Contributor"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_kubelet_identity_operator" {
@@ -45,6 +65,10 @@ resource "azurerm_role_assignment" "karpenter_kubelet_identity_operator" {
   role_definition_name             = "Managed Identity Operator"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_role_assignment" "karpenter_acr_pull" {
@@ -52,6 +76,10 @@ resource "azurerm_role_assignment" "karpenter_acr_pull" {
   role_definition_name             = "AcrPull"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
+
+  lifecycle {
+    ignore_changes = [skip_service_principal_aad_check]
+  }
 }
 
 resource "azurerm_federated_identity_credential" "karpenter" {
@@ -96,6 +124,7 @@ resource "null_resource" "install_karpenter" {
     gpu_zones_csv              = join(",", local.gpu_zones)
     gpu_sku_name               = var.gpu_sku_name
     gpu_type                   = var.gpu_type
+    gpu_node_workload_label    = var.gpu_node_workload_label
     spot_max_price             = var.spot_max_price
     consolidate_after          = var.consolidate_after
     install_script_sha         = filesha256("${path.module}/scripts/install-karpenter.sh")
@@ -137,6 +166,7 @@ resource "null_resource" "install_karpenter" {
       GPU_ZONES_CSV              = self.triggers.gpu_zones_csv
       GPU_SKU_NAME               = self.triggers.gpu_sku_name
       GPU_TYPE                   = self.triggers.gpu_type
+      GPU_NODE_WORKLOAD_LABEL    = self.triggers.gpu_node_workload_label
       SPOT_MAX_PRICE             = self.triggers.spot_max_price
       CONSOLIDATE_AFTER          = self.triggers.consolidate_after
     }

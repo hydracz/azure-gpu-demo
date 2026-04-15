@@ -10,10 +10,11 @@ locals {
 
   gpu_zones = length(var.gpu_zones) > 0 ? var.gpu_zones : ["${var.location}-1"]
 
-  gpu_driver_node_selector_value_parts = split("_", var.gpu_sku_name)
-  gpu_driver_node_selector_value       = trimspace(var.gpu_driver_node_selector_value) != "" ? var.gpu_driver_node_selector_value : local.gpu_driver_node_selector_value_parts[length(local.gpu_driver_node_selector_value_parts) - 2]
-  gpu_driver_version_source_tag_2204   = trimspace(var.gpu_driver_version_source_tag_2204) != "" ? var.gpu_driver_version_source_tag_2204 : "${var.gpu_driver_version}-ubuntu22.04"
-  gpu_driver_version_source_tag_2404   = trimspace(var.gpu_driver_version_source_tag_2404) != "" ? var.gpu_driver_version_source_tag_2404 : "${var.gpu_driver_version}-ubuntu24.04"
+  gpu_driver_node_selector_value_parts      = split("_", var.gpu_sku_name)
+  gpu_driver_node_selector_value            = trimspace(var.gpu_driver_node_selector_value) != "" ? var.gpu_driver_node_selector_value : local.gpu_driver_node_selector_value_parts[length(local.gpu_driver_node_selector_value_parts) - 2]
+  gpu_driver_version_source_tag_2204        = trimspace(var.gpu_driver_version_source_tag_2204) != "" ? var.gpu_driver_version_source_tag_2204 : "${var.gpu_driver_version}-ubuntu22.04"
+  gpu_driver_version_source_tag_2404        = trimspace(var.gpu_driver_version_source_tag_2404) != "" ? var.gpu_driver_version_source_tag_2404 : "${var.gpu_driver_version}-ubuntu24.04"
+  keda_prometheus_federated_credential_name = trimspace(var.keda_prometheus_federated_credential_name) != "" ? var.keda_prometheus_federated_credential_name : "${var.keda_prometheus_identity_name}-keda-operator"
 
   karpenter_chart_dir     = "${path.module}/../charts/karpenter"
   karpenter_crd_chart_dir = "${path.module}/../charts/karpenter-crd"

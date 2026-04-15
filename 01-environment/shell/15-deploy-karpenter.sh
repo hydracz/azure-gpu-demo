@@ -307,7 +307,7 @@ assign_role_if_missing "Network Contributor"             "${vnet_subnet_id}" "${
 while IFS= read -r node_identity_id; do
   [[ -n "${node_identity_id}" ]] || continue
   assign_role_if_missing "Managed Identity Operator" "${node_identity_id}" "${identity_principal_id}"
-done < <(python3 - <<'PY' "${NODE_IDENTITIES}"
+done < <(python3 - <<'PY' "${NODE_IDENTITIES:-}"
 import sys
 
 for item in sys.argv[1].split(','):
@@ -414,7 +414,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: gpu-test
+        workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
         spot_pool: "yes"
       annotations:
@@ -436,7 +436,7 @@ ${gpu_zones_yaml}
           values: ["${GPU_SKU_NAME}"]
       taints:
         - key: workload
-          value: gpu-test
+          value: ${GPU_NODE_WORKLOAD_LABEL}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -460,7 +460,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: gpu-test
+        workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
         spot_pool: "no"
     spec:
@@ -480,7 +480,7 @@ ${gpu_zones_yaml}
           values: ["${GPU_SKU_NAME}"]
       taints:
         - key: workload
-          value: gpu-test
+          value: ${GPU_NODE_WORKLOAD_LABEL}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com

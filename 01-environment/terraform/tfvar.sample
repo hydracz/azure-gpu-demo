@@ -1,3 +1,7 @@
+// Advanced override reference only.
+// Preferred workflow: maintain root aks.env as the single input source,
+// then let 01-plan.sh / 03-destroy.sh render *.auto.tfvars.json automatically.
+
 subscription_id              = "00000000-0000-0000-0000-000000000000"
 location                     = "southeastasia"
 resource_group_name          = "rg-aks-karpenter-gpu"
@@ -54,6 +58,11 @@ grafana_admin_principal_ids = []
 prometheus_rule_group_enabled  = true
 prometheus_rule_group_interval = "PT1M"
 service_monitor_crd_enabled    = true
+keda_prometheus_auth_name      = "azure-managed-prometheus"
+keda_prometheus_identity_name  = "id-keda-prometheus"
+keda_prometheus_operator_namespace            = "kube-system"
+keda_prometheus_operator_service_account_name = "keda-operator"
+keda_prometheus_operator_deployment_name      = "keda-operator"
 
 karpenter_namespace        = "kube-system"
 karpenter_service_account  = "karpenter-sa"
@@ -63,6 +72,7 @@ karpenter_image_tag        = "v20260323-dev"
 
 gpu_sku_name          = "Standard_NC128lds_xl_RTXPRO6000BSE_v6"
 gpu_type              = "rtxpro6000-bse"
+gpu_node_workload_label = "gpu-test"
 gpu_zones             = ["southeastasia-1"]
 gpu_node_image_family = "Ubuntu2404"
 gpu_os_disk_size_gb   = 1024
