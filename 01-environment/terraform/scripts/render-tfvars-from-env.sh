@@ -22,6 +22,22 @@ fi
 load_env
 ensure_parent_dir "${OUTPUT_FILE}"
 
+is_true() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|on|ON)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+require_prepared_var() {
+    local name="$1"
+
+    [[ -n "${!name:-}" ]] || fail "${name} is required from 00-prepare output. Run ./00-prepare/00-prepare.sh first."
+}
+
 if [[ -z "${GRAFANA_ADMIN_PRINCIPAL_IDS:-}" ]]; then
     export GRAFANA_ADMIN_PRINCIPAL_IDS="$(resolve_current_azure_principal_id)"
 fi
@@ -35,6 +51,32 @@ fi
 need_cmd az
 if ! az resource show --ids "${existing_subnet_id}" --query id -o tsv --only-show-errors >/dev/null 2>&1; then
     fail "EXISTING_VNET_SUBNET_ID does not exist: ${existing_subnet_id}. Run ./00-prepare/00-prepare.sh first or point it to an existing subnet."
+fi
+
+existing_acr_id="${EXISTING_ACR_ID:-}"
+if [[ -z "${existing_acr_id}" ]]; then
+    fail "EXISTING_ACR_ID is required. Run ./00-prepare/00-prepare.sh first so 01-environment consumes a prepared ACR instead of creating one."
+fi
+
+if ! az resource show --ids "${existing_acr_id}" --query id -o tsv --only-show-errors >/dev/null 2>&1; then
+    fail "EXISTING_ACR_ID does not exist: ${existing_acr_id}. Run ./00-prepare/00-prepare.sh first or point it to an existing ACR."
+fi
+
+require_prepared_var KARPENTER_TARGET_IMAGE_REPOSITORY
+
+if is_true "${GPU_OPERATOR_ENABLED:-true}"; then
+    require_prepared_var GPU_DRIVER_TARGET_REPOSITORY
+    require_prepared_var GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY
+    require_prepared_var GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY
+    require_prepared_var GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY
+    require_prepared_var GPU_OPERATOR_MIRROR_NFD_REPOSITORY
+fi
+
+if is_true "${ISTIO_SERVICE_MESH_ENABLED:-true}" && is_true "${ISTIO_KIALI_ENABLED:-true}"; then
+    require_prepared_var ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY
+    require_prepared_var ISTIO_KIALI_TARGET_IMAGE_NAME
+    require_prepared_var ISTIO_KIALI_PROXY_TARGET_IMAGE
+    require_prepared_var ISTIO_KIALI_IMAGE_TAG
 fi
 
 python3 - "${OUTPUT_FILE}" <<'PY'
@@ -83,7 +125,7 @@ def csv_list(name: str) -> list[str]:
 
 output_path = Path(sys.argv[1])
 existing_subnet_id = get("EXISTING_VNET_SUBNET_ID")
-existing_acr_id = get("EXISTING_ACR_ID") or get("ACR_ID")
+existing_acr_id = require("EXISTING_ACR_ID")
 cert_manager_enabled = as_bool("CERT_MANAGER_ENABLED", True)
 cert_manager_acme_email = get("CERT_MANAGER_ACME_EMAIL")
 
@@ -101,7 +143,6 @@ payload = {
     "resource_group_name": require("RESOURCE_GROUP"),
     "cluster_name": require("CLUSTER_NAME"),
     "aks_identity_name": get("AKS_IDENTITY_NAME", "id-aks-control-plane"),
-    "acr_name": get("ACR_NAME"),
     "existing_acr_id": existing_acr_id,
     "monitor_workspace_name": require("MONITOR_WORKSPACE_NAME"),
     "monitor_workspace_public_network_access_enabled": as_bool("MONITOR_WORKSPACE_PUBLIC_NETWORK_ACCESS_ENABLED", True),
@@ -183,9 +224,6 @@ payload = {
     "gpu_driver_version_source_tag_2404": get("GPU_DRIVER_VERSION_SOURCE_TAG_2404", "580.105.08-ubuntu24.04"),
     "tags": tags,
 }
-
-if not payload["existing_acr_id"] and not payload["acr_name"]:
-    raise SystemExit("ACR_NAME is required when EXISTING_ACR_ID is empty")
 
 output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY

@@ -50,7 +50,7 @@ source "${SCRIPT_DIR}/gpu-operator-image-sync.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/kiali-image-sync.sh"
 
-need_cmd az
+image_sync_require_backend_tools
 
 for required_var in \
   AZURE_SUBSCRIPTION_ID RESOURCE_GROUP ACR_NAME EXISTING_VNET_SUBNET_ID \
@@ -72,6 +72,7 @@ image_sync_write_env_if_available AKS_SUBNET_ID "${EXISTING_VNET_SUBNET_ID}"
 log "Preparing shared Azure assets"
 log "  subnet id : ${EXISTING_VNET_SUBNET_ID}"
 log "  acr name  : ${ACR_NAME}"
+log "  sync tool : $(image_sync_selected_tool)"
 
 sync_karpenter_image
 sync_gpu_operator_images

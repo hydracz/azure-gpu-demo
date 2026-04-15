@@ -34,7 +34,7 @@ resource "null_resource" "install_istio_addons" {
     subscription_id                             = var.subscription_id
     resource_group_name                         = azurerm_resource_group.main.name
     cluster_name                                = azurerm_kubernetes_cluster.main.name
-    acr_name                                    = local.acr_name
+    shared_env_hash                             = fileexists(local.shared_env_file) ? filesha256(local.shared_env_file) : ""
     monitor_workspace_query_endpoint            = azurerm_monitor_workspace.main.query_endpoint
     istio_internal_ingress_gateway_enabled      = tostring(var.istio_internal_ingress_gateway_enabled)
     istio_external_ingress_gateway_enabled      = tostring(var.istio_external_ingress_gateway_enabled)
@@ -106,7 +106,6 @@ resource "null_resource" "install_istio_addons" {
   }
 
   depends_on = [
-    null_resource.prepare_shared_assets,
     time_sleep.aks_api_ready,
     null_resource.ama_metrics_config,
     azurerm_role_assignment.istio_kiali_proxy_monitoring_data_reader,

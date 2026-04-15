@@ -1,16 +1,14 @@
 locals {
-  create_acr     = trimspace(var.existing_acr_id) == ""
-
   aks_subnet_id               = var.existing_subnet_id
   aks_vnet_id                 = split("/subnets/", local.aks_subnet_id)[0]
   aks_subnet_id_parts         = split("/", trimspace(local.aks_subnet_id))
   network_resource_group_name = trimspace(local.aks_subnet_id) == "" ? null : local.aks_subnet_id_parts[4]
-  existing_acr_id_parts       = local.create_acr ? [] : split("/", trimspace(var.existing_acr_id))
-  existing_acr_resource_group = local.create_acr ? "" : local.existing_acr_id_parts[4]
-  existing_acr_name           = local.create_acr ? "" : local.existing_acr_id_parts[8]
-  acr_id                      = local.create_acr ? azurerm_container_registry.main[0].id : data.azurerm_container_registry.existing[0].id
-  acr_name                    = local.create_acr ? azurerm_container_registry.main[0].name : data.azurerm_container_registry.existing[0].name
-  acr_login_server            = local.create_acr ? azurerm_container_registry.main[0].login_server : data.azurerm_container_registry.existing[0].login_server
+  existing_acr_id_parts       = split("/", trimspace(var.existing_acr_id))
+  existing_acr_resource_group = local.existing_acr_id_parts[4]
+  existing_acr_name           = local.existing_acr_id_parts[8]
+  acr_id                      = data.azurerm_container_registry.existing.id
+  acr_name                    = data.azurerm_container_registry.existing.name
+  acr_login_server            = data.azurerm_container_registry.existing.login_server
   aks_endpoint                = "https://${azurerm_kubernetes_cluster.main.fqdn}"
   kubeconfig_path             = "${path.module}/.generated-kubeconfig"
   shared_env_file             = abspath("${path.module}/../../.generated.env")

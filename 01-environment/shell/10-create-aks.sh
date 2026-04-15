@@ -47,7 +47,7 @@ if [[ "${CERT_MANAGER_ENABLED}" == "true" ]]; then
 fi
 
 require_env \
-  AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
+  AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME ACR_RESOURCE_GROUP EXISTING_ACR_ID \
   MONITOR_WORKSPACE_NAME LOG_ANALYTICS_WORKSPACE_NAME AKS_DIAGNOSTIC_SETTING_NAME \
   GRAFANA_NAME SYSTEM_POOL_NAME SYSTEM_VM_SIZE SYSTEM_NODE_COUNT \
   EXISTING_VNET_SUBNET_ID
@@ -440,20 +440,16 @@ az group create \
   --only-show-errors \
   >/dev/null
 
-# ── ACR ────────────────────────────────────────────────────────────
-if ! az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --only-show-errors >/dev/null 2>&1; then
-  log "Creating ACR ${ACR_NAME}"
-  az acr create \
-    --name "${ACR_NAME}" \
-    --resource-group "${RESOURCE_GROUP}" \
-    --location "${LOCATION}" \
-    --sku Standard \
-    --admin-enabled false \
-    --only-show-errors \
-    >/dev/null
-else
-  log "ACR ${ACR_NAME} already exists"
+# ── Prepared ACR ───────────────────────────────────────────────────
+if ! az acr show --name "${ACR_NAME}" --resource-group "${ACR_RESOURCE_GROUP}" --only-show-errors >/dev/null 2>&1; then
+  fail "Prepared ACR ${ACR_NAME} was not found in ${ACR_RESOURCE_GROUP}. Run ./00-prepare/00-prepare.sh first."
 fi
+
+resolved_acr_id="$(az acr show --name "${ACR_NAME}" --resource-group "${ACR_RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
+[[ -n "${resolved_acr_id}" ]] || fail "Unable to resolve prepared ACR id for ${ACR_NAME}"
+[[ "${resolved_acr_id}" == "${EXISTING_ACR_ID}" ]] || fail "Prepared ACR mismatch: aks.env/.generated.env points to ${EXISTING_ACR_ID}, but Azure resolved ${resolved_acr_id}"
+
+log "Using prepared ACR ${ACR_NAME} (${EXISTING_ACR_ID})"
 
 # ── Azure Monitor Workspace ───────────────────────────────────────
 if ! az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --only-show-errors >/dev/null 2>&1; then
@@ -500,7 +496,7 @@ fi
 monitor_workspace_id="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
 log_analytics_workspace_id="$(az monitor log-analytics workspace show --name "${LOG_ANALYTICS_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
 grafana_id="$(az grafana show --name "${GRAFANA_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
-acr_login_server="$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query loginServer -o tsv --only-show-errors)"
+acr_login_server="$(az acr show --name "${ACR_NAME}" --resource-group "${ACR_RESOURCE_GROUP}" --query loginServer -o tsv --only-show-errors)"
 
 monitor_workspace_query_endpoint="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query 'properties.metrics.prometheusQueryEndpoint' -o tsv --only-show-errors 2>/dev/null || true)"
 if [[ -z "${monitor_workspace_query_endpoint}" || "${monitor_workspace_query_endpoint}" == "null" ]]; then
@@ -539,7 +535,7 @@ create_aks_cluster() {
     --enable-managed-identity \
     --enable-oidc-issuer \
     --enable-workload-identity \
-    --attach-acr "${ACR_NAME}" \
+    --attach-acr "${EXISTING_ACR_ID}" \
     --enable-keda \
     --enable-azure-monitor-metrics \
     --azure-monitor-workspace-resource-id "${monitor_workspace_id}" \
@@ -676,7 +672,8 @@ write_generated_env LOCATION "${LOCATION}"
 write_generated_env RESOURCE_GROUP "${RESOURCE_GROUP}"
 write_generated_env CLUSTER_NAME "${CLUSTER_NAME}"
 write_generated_env ACR_NAME "${ACR_NAME}"
-write_generated_env ACR_ID "$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
+write_generated_env EXISTING_ACR_ID "${resolved_acr_id}"
+write_generated_env ACR_ID "${resolved_acr_id}"
 write_generated_env ACR_LOGIN_SERVER "${acr_login_server}"
 write_generated_env CLUSTER_ID "${cluster_id}"
 write_generated_env CLUSTER_FQDN "${aks_endpoint}"

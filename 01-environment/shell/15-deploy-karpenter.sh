@@ -34,9 +34,9 @@ KARPENTER_CHART_DIR="${ROOT_DIR}/01-environment/charts"
 [[ -d "${KARPENTER_CHART_DIR}/karpenter" ]] || fail "Karpenter Helm Chart not found at ${KARPENTER_CHART_DIR}/karpenter. See README.md for chart setup instructions."
 
 require_env \
-  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION ACR_NAME \
+  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION EXISTING_ACR_ID \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_IDENTITY_NAME \
-  KARPENTER_IMAGE_REPO KARPENTER_IMAGE_TAG KARPENTER_TARGET_IMAGE_REPOSITORY \
+  KARPENTER_IMAGE_TAG KARPENTER_TARGET_IMAGE_REPOSITORY \
   GPU_SKU_NAME GPU_TYPE INSTALL_GPU_DRIVERS \
   CONSOLIDATE_AFTER SPOT_MAX_PRICE \
   GPU_ZONES EXISTING_VNET_SUBNET_ID
@@ -311,9 +311,8 @@ for item in sys.argv[1].split(','):
 PY
 )
 
-# 允许 Karpenter 从 ACR 拉取镜像
-acr_id="$(az acr show --name "${ACR_NAME}" --resource-group "${RESOURCE_GROUP}" --query id -o tsv --only-show-errors)"
-assign_role_if_missing "AcrPull" "${acr_id}" "${identity_principal_id}"
+# 允许 Karpenter 从预准备 ACR 拉取镜像
+assign_role_if_missing "AcrPull" "${EXISTING_ACR_ID}" "${identity_principal_id}"
 
 # ── 3. Federated Identity Credential ──────────────────────────────
 fed_cred_name="${KARPENTER_IDENTITY_NAME}-fed-cred"

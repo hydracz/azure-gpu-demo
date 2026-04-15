@@ -97,7 +97,6 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   depends_on = [
-    null_resource.prepare_shared_assets,
     azurerm_dashboard_grafana.main,
     azurerm_log_analytics_workspace.main,
     azurerm_monitor_workspace.main,

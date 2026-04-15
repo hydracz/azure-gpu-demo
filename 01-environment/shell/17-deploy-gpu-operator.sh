@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../00-prepare/scripts/gpu-operator-image-sync.sh"
+source "${SCRIPT_DIR}/../scripts/prepared-image-env.sh"
 
 load_env
 ensure_tooling
@@ -35,23 +35,8 @@ GPU_DRIVER_SOURCE_REPOSITORY="${GPU_DRIVER_SOURCE_REPOSITORY:-docker.io/yingeli}
 GPU_DRIVER_IMAGE="${GPU_DRIVER_IMAGE:-driver}"
 GPU_DRIVER_VERSION="${GPU_DRIVER_VERSION:-580.105.08}"
 GPU_DRIVER_REQUIRE_MATCHING_NODES="${GPU_DRIVER_REQUIRE_MATCHING_NODES:-false}"
-GPU_DRIVER_SYNC_ENABLED="${GPU_DRIVER_SYNC_ENABLED:-true}"
-GPU_DRIVER_ALLOW_OS_TAG_ALIAS="${GPU_DRIVER_ALLOW_OS_TAG_ALIAS:-false}"
-GPU_DRIVER_VERSION_SOURCE_TAG_2204="${GPU_DRIVER_VERSION_SOURCE_TAG_2204:-${GPU_DRIVER_VERSION}-ubuntu22.04}"
-GPU_DRIVER_VERSION_SOURCE_TAG_2404="${GPU_DRIVER_VERSION_SOURCE_TAG_2404:-${GPU_DRIVER_VERSION}-ubuntu24.04}"
 GPU_OPERATOR_DEP_CHART_DIR="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery"
 GPU_OPERATOR_DEP_CHART_PACKAGE="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery-chart-0.18.2.tgz"
-
-validate_driver_tag_mapping() {
-  local source_tag="$1"
-  local target_tag="$2"
-  local source_os_tag="${source_tag##*-}"
-  local target_os_tag="${target_tag##*-}"
-
-  if [[ "${source_os_tag}" != "${target_os_tag}" && "${GPU_DRIVER_ALLOW_OS_TAG_ALIAS}" != "true" ]]; then
-    fail "Refusing to alias driver image ${source_tag} to ${target_tag}. Set GPU_DRIVER_ALLOW_OS_TAG_ALIAS=true only if you intentionally want to test an OS-mismatched image."
-  fi
-}
 
 ensure_gpu_operator_chart_deps() {
   if [[ -d "${GPU_OPERATOR_DEP_CHART_DIR}" || -f "${GPU_OPERATOR_DEP_CHART_PACKAGE}" ]]; then
@@ -115,7 +100,7 @@ ensure_gpu_operator_controller() {
 }
 
 require_env \
-  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_SKU_NAME ACR_NAME \
+  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_SKU_NAME \
   GPU_DRIVER_TARGET_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY \
   GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY \
   GPU_OPERATOR_MIRROR_NFD_REPOSITORY
@@ -130,11 +115,6 @@ EXPECTED_DRIVER_SELECTOR="${GPU_DRIVER_NODE_SELECTOR_KEY}=${GPU_DRIVER_NODE_SELE
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
-
-if [[ "${GPU_DRIVER_SYNC_ENABLED}" == "true" ]]; then
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
-fi
 
 az aks get-credentials \
   --resource-group "${RESOURCE_GROUP}" \

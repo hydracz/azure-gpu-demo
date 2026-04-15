@@ -7,22 +7,16 @@ resource "null_resource" "install_gpu_operator" {
     subscription_id                   = var.subscription_id
     resource_group_name               = azurerm_resource_group.main.name
     cluster_name                      = azurerm_kubernetes_cluster.main.name
-    acr_name                          = local.acr_name
+    shared_env_hash                   = fileexists(local.shared_env_file) ? filesha256(local.shared_env_file) : ""
     gpu_operator_chart_dir            = local.gpu_operator_chart_dir
     gpu_operator_chart_hash           = local.gpu_operator_chart_hash
     gpu_operator_namespace            = var.gpu_operator_namespace
     gpu_driver_cr_name                = var.gpu_driver_cr_name
     gpu_driver_node_selector_key      = var.gpu_driver_node_selector_key
     gpu_driver_node_selector_value    = local.gpu_driver_node_selector_value
-    gpu_driver_source_repository      = var.gpu_driver_source_repository
     gpu_driver_image                  = var.gpu_driver_image
     gpu_driver_version                = var.gpu_driver_version
     gpu_driver_require_matching_nodes = tostring(var.gpu_driver_require_matching_nodes)
-    gpu_driver_sync_enabled           = tostring(var.gpu_driver_sync_enabled)
-    gpu_driver_sync_use_sudo          = tostring(var.gpu_driver_sync_use_sudo)
-    gpu_driver_allow_os_tag_alias     = tostring(var.gpu_driver_allow_os_tag_alias)
-    gpu_driver_source_tag_2204        = local.gpu_driver_version_source_tag_2204
-    gpu_driver_source_tag_2404        = local.gpu_driver_version_source_tag_2404
     gpu_node_workload_label           = var.gpu_node_workload_label
     install_script_sha                = filesha256("${path.module}/scripts/install-gpu-operator.sh")
     uninstall_script_sha              = filesha256("${path.module}/scripts/uninstall-gpu-operator.sh")
@@ -68,7 +62,6 @@ resource "null_resource" "install_gpu_operator" {
   }
 
   depends_on = [
-    null_resource.prepare_shared_assets,
     null_resource.install_karpenter,
   ]
 }

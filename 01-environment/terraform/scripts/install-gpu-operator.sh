@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../../00-prepare/scripts/gpu-operator-image-sync.sh"
+source "${SCRIPT_DIR}/../../scripts/prepared-image-env.sh"
 
 if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
   set -a

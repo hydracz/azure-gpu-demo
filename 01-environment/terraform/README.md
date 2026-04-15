@@ -63,13 +63,13 @@ cp aks.env.sample aks.env
 - 环境名仍然作为脚本参数，用来生成同目录下的 dev.tfbackend 和 dev.auto.tfvars.json。
 - 00-init.sh 现在也会从根目录 aks.env 动态调用 scripts/render-tfbackend-from-env.sh 生成最新的 dev.tfbackend。
 - 运行 01-environment/terraform 之前，先执行顶层 [00-prepare/00-prepare.sh](00-prepare/00-prepare.sh)，确保共享前置条件已经准备完成并写入根目录 `.generated.env`。
-- Terraform apply 过程中仍会调用顶层 00-prepare，用来校验并补齐共享前置结果，但 01-environment 本身不再创建网络，也不再承载镜像同步实现。
+- 01-environment/terraform 不会自动调用 00-prepare；它只消费已经准备好的 subnet、ACR 和共享镜像结果。缺任何一个依赖都应先回到 00-prepare 补齐，再重新 plan/apply。
 - backend 至少需要在 aks.env 里提供 TFSTATE_RESOURCE_GROUP 和 TFSTATE_STORAGE_ACCOUNT；TFSTATE_CONTAINER 默认是 tfstate，TFSTATE_KEY 默认是 azure-gpu-demo/01-environment/<env-name>.tfstate。
 - 现在默认只把根目录 aks.env 作为输入源；01-plan.sh 和 03-destroy.sh 每次执行都会重新调用 scripts/render-tfvars-from-env.sh 生成最新的 dev.auto.tfvars.json。
 - 不再依赖或优先读取 dev.tfvar 这类静态环境文件；如果历史目录里还留着它们，也不会被这两个入口脚本使用。
 - EXISTING_VNET_SUBNET_ID 现在是必填输入，来自 00-prepare 的共享输出；render 脚本会把它映射到 Terraform 的 existing_subnet_id，并在 plan 前校验这个 subnet id 在 Azure 中真实存在。
-- 如果已经有现成的 ACR，可在根目录 aks.env 里填写 EXISTING_ACR_ID；render 脚本会把它映射到 Terraform 的 existing_acr_id，Terraform 将直接读取现有 ACR 而不是重复创建。
-- 如果希望 Terraform 创建 ACR，则保持 EXISTING_ACR_ID 为空，并提供 ACR_NAME；如果你先执行过 `00-prepare/00-prepare.sh`，它也会把实际 ACR 信息写回 `.generated.env`，后续 Terraform plan/apply 会优先复用该结果。
+- EXISTING_ACR_ID 也是必填输入，来自 00-prepare 的共享输出；Terraform 只会读取这个已存在的 ACR，不再承担 ACR 创建职责。
+- 如果启用了 Karpenter、GPU Operator 或 Kiali，render 脚本还会在 plan 前检查 00-prepare 写入的镜像仓库变量是否齐全，缺失时直接报错提示回到 00-prepare 补齐。
 - Managed Grafana 管理员默认会自动解析当前 az login 用户/主体的 object id；如果需要授予额外管理员，再显式设置 grafana_admin_principal_ids。
 - Managed Grafana 会自动集成 Azure Monitor Workspace，并补齐对 Monitor Workspace 的 Monitoring Data Reader / Monitoring Metrics Publisher 权限。
 - Terraform 默认还会把仓库内置的 dashboard 自动导入到 Azure Managed Grafana，目前包括 Istio workload 看板和一个适配 DCGM exporter 的 GPU 看板；如果不想导入，可把 grafana_dashboard_import_enabled 设为 false。

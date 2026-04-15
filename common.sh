@@ -133,6 +133,7 @@ apply_derived_config() {
   set_default_env CERT_MANAGER_PROD_ISSUER_NAME "letsencrypt-prod"
   set_default_env CERT_MANAGER_INGRESS_GATEWAY_NAMESPACE "aks-istio-ingress"
   set_default_env CERT_MANAGER_INGRESS_GATEWAY_SERVICE_NAME "aks-istio-ingressgateway-external"
+  set_default_env IMAGE_SYNC_TOOL "az-acr-import"
 
   set_default_env KARPENTER_NAMESPACE "kube-system"
   set_default_env KARPENTER_SERVICE_ACCOUNT "karpenter-sa"

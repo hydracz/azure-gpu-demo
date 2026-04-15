@@ -22,42 +22,21 @@ sync_qwen_image() {
   local target_ref="${QWEN_LOADTEST_TARGET_REPOSITORY}:${QWEN_LOADTEST_SOURCE_IMAGE_TAG}"
   local target_image="${ACR_LOGIN_SERVER}/${target_ref}"
 
+  image_sync_require_backend_tools
   image_sync_ensure_acr_login_server
 
   log "Qwen image sync plan:"
   log "  source image : ${source_ref}"
   log "  target image : ${target_image}"
+  log "  sync tool    : $(image_sync_selected_tool)"
 
   write_generated_env QWEN_LOADTEST_SOURCE_IMAGE "${source_ref}"
   write_generated_env QWEN_LOADTEST_TARGET_IMAGE "${target_image}"
   write_generated_env QWEN_LOADTEST_TARGET_REPOSITORY "${QWEN_LOADTEST_TARGET_REPOSITORY}"
 
-  if image_sync_target_ref_exists "${target_ref}"; then
-    log "Target image already exists in ${ACR_NAME}, skipping import"
-  elif [[ -z "${QWEN_LOADTEST_SOURCE_PASSWORD:-}" ]]; then
-    fail "QWEN_LOADTEST_SOURCE_PASSWORD is required when target image ${target_image} is not already present in ${ACR_NAME}"
-  else
-    local import_args=(
-      --name "${ACR_NAME}"
-      --resource-group "${ACR_RESOURCE_GROUP}"
-      --source "${source_ref}"
-      --username "${QWEN_LOADTEST_SOURCE_USERNAME}"
-      --password "${QWEN_LOADTEST_SOURCE_PASSWORD}"
-      --image "${target_ref}"
-      --force
-      --only-show-errors
-    )
-
-    if [[ "${QWEN_LOADTEST_IMPORT_NO_WAIT}" == "true" ]]; then
-      import_args+=(--no-wait)
-    fi
-
-    az acr import "${import_args[@]}" >/dev/null
-
-    if [[ "${QWEN_LOADTEST_IMPORT_NO_WAIT}" == "true" ]]; then
-      log "Qwen image import submitted in background"
-    fi
-  fi
+  IMAGE_SYNC_AZ_ACR_IMPORT_NO_WAIT="${QWEN_LOADTEST_IMPORT_NO_WAIT}"
+  export IMAGE_SYNC_AZ_ACR_IMPORT_NO_WAIT
+  image_sync_import_ref "${source_ref}" "${target_ref}" "${QWEN_LOADTEST_SOURCE_USERNAME}" "${QWEN_LOADTEST_SOURCE_PASSWORD:-}"
 
   log "Qwen image sync completed"
   log "  target image : ${target_image}"

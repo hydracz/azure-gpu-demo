@@ -95,11 +95,11 @@ resource "null_resource" "install_karpenter" {
     cluster_id                 = azurerm_kubernetes_cluster.main.id
     cluster_name               = azurerm_kubernetes_cluster.main.name
     resource_group_name        = azurerm_resource_group.main.name
-    acr_name                   = local.acr_name
     cluster_endpoint           = local.aks_endpoint
     subscription_id            = var.subscription_id
     location                   = var.location
     kubeconfig_path            = local.kubeconfig_path
+    shared_env_hash            = fileexists(local.shared_env_file) ? filesha256(local.shared_env_file) : ""
     system_pool_name           = var.system_pool_name
     karpenter_namespace        = var.karpenter_namespace
     karpenter_service_account  = var.karpenter_service_account
@@ -108,7 +108,6 @@ resource "null_resource" "install_karpenter" {
     karpenter_crd_chart_dir    = local.karpenter_crd_chart_dir
     karpenter_chart_hash       = local.karpenter_chart_hash
     karpenter_crd_chart_hash   = local.karpenter_crd_chart_hash
-    karpenter_image_repository = var.karpenter_image_repository
     karpenter_image_tag        = var.karpenter_image_tag
     aks_subnet_id              = local.aks_subnet_id
     node_resource_group        = azurerm_kubernetes_cluster.main.node_resource_group
@@ -193,7 +192,6 @@ resource "null_resource" "install_karpenter" {
   }
 
   depends_on = [
-    null_resource.prepare_shared_assets,
     time_sleep.aks_api_ready,
     null_resource.ama_metrics_config,
     azurerm_federated_identity_credential.karpenter,

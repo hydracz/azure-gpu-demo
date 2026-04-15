@@ -4,14 +4,14 @@
 
 ## 目录内容
 
-- 10-create-aks.sh: 创建 ACR、监控资源和 AKS 集群，并前置启用 AKS managed Istio 与共享 KEDA Prometheus 认证。
+- 10-create-aks.sh: 创建监控资源和 AKS 集群，并前置启用 AKS managed Istio 与共享 KEDA Prometheus 认证；默认直接消费 00-prepare 阶段准备好的 subnet 和 ACR。
 - 12-deploy-cert-manager.sh: 安装 cert-manager、Istio IngressClass 和 Let's Encrypt staging/prod ClusterIssuer。
 - 13-destroy-cert-manager.sh: 删除 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer。
 - 19-import-grafana-dashboards.sh: 把仓库内置的 Grafana 仪表板导入到当前 Azure Managed Grafana。
 - 11-delete-aks.sh: 删除 AKS。
-- 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool。
+- 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool，只读取 00-prepare 已写入的镜像仓库和网络信息。
 - 16-destroy-karpenter.sh: 卸载 Karpenter。
-- 17-deploy-gpu-operator.sh: 安装 GPU Operator 并创建 NVIDIADriver。
+- 17-deploy-gpu-operator.sh: 安装 GPU Operator 并创建 NVIDIADriver，只读取 00-prepare 已写入的镜像仓库信息。
 - 18-destroy-gpu-operator.sh: 卸载 GPU Operator。
 - 99-cleanup.sh: 一键回收环境资源。
 
@@ -33,7 +33,7 @@ cp aks.env.sample aks.env
 ./01-environment/shell/17-deploy-gpu-operator.sh
 ```
 
-运行这个 shell 流程之前，先完成仓库顶层的共享准备步骤。
+运行这个 shell 流程之前，先完成仓库顶层的共享准备步骤；01 不会帮你补镜像同步或网络创建，只会消费并校验 .generated.env / aks.env 中已有结果。
 
 说明：10-create-aks.sh 现在会自动调用 12-deploy-cert-manager.sh，因此正常场景不需要单独执行 12；如果你只想重试证书平台安装，再单独运行 12 即可。
 

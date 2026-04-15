@@ -30,6 +30,9 @@ cp aks.env.sample aks.env
 - 如果 EXISTING_VNET_SUBNET_ID 为空，则按 NETWORK_RESOURCE_GROUP、VNET_NAME、VNET_ADDRESS_PREFIX、AKS_SUBNET_NAME、AKS_SUBNET_ADDRESS_PREFIX 创建或复用网络与 NSG。
 - 如果 aks.env 中提供 EXISTING_ACR_ID，就直接复用该 ACR。
 - 如果 EXISTING_ACR_ID 为空，则按 ACR_NAME 和 ACR_RESOURCE_GROUP / RESOURCE_GROUP 创建或复用 ACR。
+- 共享镜像同步默认使用 IMAGE_SYNC_TOOL=az-acr-import；如果 Azure 的导入长时间卡住，可在 aks.env 中改成 IMAGE_SYNC_TOOL=skopeo。
+- 使用 skopeo 模式时，镜像会经由当前执行机器中转复制到目标 ACR，因此要求本机已安装 skopeo，并且具备足够的下行/上行带宽。
+- skopeo 默认使用 IMAGE_SYNC_SKOPEO_MULTI_ARCH=all，会复制源镜像中存在的全部架构，不跟随当前执行机器的 CPU 架构；如需改回仅复制当前平台，可显式设置 IMAGE_SYNC_SKOPEO_MULTI_ARCH=system。
 - Qwen 镜像同步脚本读取 QWEN_LOADTEST_SOURCE_LOGIN_SERVER、QWEN_LOADTEST_SOURCE_IMAGE_REPOSITORY、QWEN_LOADTEST_SOURCE_IMAGE_TAG、QWEN_LOADTEST_TARGET_REPOSITORY，以及 QWEN_LOADTEST_SOURCE_PASSWORD。
 
 ## 输出

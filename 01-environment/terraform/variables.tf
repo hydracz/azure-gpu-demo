@@ -24,19 +24,12 @@ variable "aks_identity_name" {
   default     = "id-aks-control-plane"
 }
 
-variable "acr_name" {
-  description = "Azure Container Registry name when Terraform creates the registry"
-  type        = string
-  default     = ""
-}
-
 variable "existing_acr_id" {
-  description = "Existing Azure Container Registry resource id. Leave empty to let Terraform create the registry."
+  description = "Existing Azure Container Registry resource id prepared by 00-prepare."
   type        = string
-  default     = ""
 
   validation {
-    condition     = var.existing_acr_id == "" || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.ContainerRegistry/registries/[^/]+$", var.existing_acr_id))
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.ContainerRegistry/registries/[^/]+$", var.existing_acr_id))
     error_message = "existing_acr_id must be a full Azure resource id for an Azure Container Registry."
   }
 }

@@ -42,7 +42,7 @@ mapping = {
     "oidc_issuer_url": ["OIDC_ISSUER_URL", "AKS_OIDC_ISSUER"],
     "node_resource_group": ["NODE_RESOURCE_GROUP", "AZURE_NODE_RESOURCE_GROUP"],
     "acr_name": ["ACR_NAME"],
-    "acr_id": ["ACR_ID"],
+    "acr_id": ["ACR_ID", "EXISTING_ACR_ID"],
     "acr_login_server": ["ACR_LOGIN_SERVER"],
     "monitor_workspace_id": ["MONITOR_WORKSPACE_ID"],
     "log_analytics_workspace_id": ["LOG_ANALYTICS_WORKSPACE_ID"],
