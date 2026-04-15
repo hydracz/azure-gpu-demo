@@ -7,7 +7,7 @@ resource "null_resource" "install_gpu_operator" {
     subscription_id                   = var.subscription_id
     resource_group_name               = azurerm_resource_group.main.name
     cluster_name                      = azurerm_kubernetes_cluster.main.name
-    acr_name                          = azurerm_container_registry.main.name
+    acr_name                          = local.acr_name
     gpu_operator_chart_dir            = local.gpu_operator_chart_dir
     gpu_operator_chart_hash           = local.gpu_operator_chart_hash
     gpu_operator_namespace            = var.gpu_operator_namespace
@@ -34,26 +34,20 @@ resource "null_resource" "install_gpu_operator" {
     interpreter = ["/bin/bash", "-lc"]
 
     environment = {
-      KUBECONFIG_FILE                    = self.triggers.kubeconfig_path
-      AZURE_SUBSCRIPTION_ID              = self.triggers.subscription_id
-      RESOURCE_GROUP                     = self.triggers.resource_group_name
-      CLUSTER_NAME                       = self.triggers.cluster_name
-      ACR_NAME                           = self.triggers.acr_name
-      GPU_OPERATOR_CHART_DIR             = self.triggers.gpu_operator_chart_dir
-      GPU_OPERATOR_NAMESPACE             = self.triggers.gpu_operator_namespace
-      GPU_DRIVER_CR_NAME                 = self.triggers.gpu_driver_cr_name
-      GPU_DRIVER_NODE_SELECTOR_KEY       = self.triggers.gpu_driver_node_selector_key
-      GPU_DRIVER_NODE_SELECTOR_VALUE     = self.triggers.gpu_driver_node_selector_value
-      GPU_DRIVER_SOURCE_REPOSITORY       = self.triggers.gpu_driver_source_repository
-      GPU_DRIVER_IMAGE                   = self.triggers.gpu_driver_image
-      GPU_DRIVER_VERSION                 = self.triggers.gpu_driver_version
-      GPU_DRIVER_REQUIRE_MATCHING_NODES  = self.triggers.gpu_driver_require_matching_nodes
-      GPU_DRIVER_SYNC_ENABLED            = self.triggers.gpu_driver_sync_enabled
-      GPU_DRIVER_SYNC_USE_SUDO           = self.triggers.gpu_driver_sync_use_sudo
-      GPU_DRIVER_ALLOW_OS_TAG_ALIAS      = self.triggers.gpu_driver_allow_os_tag_alias
-      GPU_DRIVER_VERSION_SOURCE_TAG_2204 = self.triggers.gpu_driver_source_tag_2204
-      GPU_DRIVER_VERSION_SOURCE_TAG_2404 = self.triggers.gpu_driver_source_tag_2404
-      GPU_NODE_WORKLOAD_LABEL            = self.triggers.gpu_node_workload_label
+      SHARED_ENV_FILE                   = local.shared_env_file
+      KUBECONFIG_FILE                   = self.triggers.kubeconfig_path
+      AZURE_SUBSCRIPTION_ID             = self.triggers.subscription_id
+      RESOURCE_GROUP                    = self.triggers.resource_group_name
+      CLUSTER_NAME                      = self.triggers.cluster_name
+      GPU_OPERATOR_CHART_DIR            = self.triggers.gpu_operator_chart_dir
+      GPU_OPERATOR_NAMESPACE            = self.triggers.gpu_operator_namespace
+      GPU_DRIVER_CR_NAME                = self.triggers.gpu_driver_cr_name
+      GPU_DRIVER_NODE_SELECTOR_KEY      = self.triggers.gpu_driver_node_selector_key
+      GPU_DRIVER_NODE_SELECTOR_VALUE    = self.triggers.gpu_driver_node_selector_value
+      GPU_DRIVER_IMAGE                  = self.triggers.gpu_driver_image
+      GPU_DRIVER_VERSION                = self.triggers.gpu_driver_version
+      GPU_DRIVER_REQUIRE_MATCHING_NODES = self.triggers.gpu_driver_require_matching_nodes
+      GPU_NODE_WORKLOAD_LABEL           = self.triggers.gpu_node_workload_label
     }
   }
 
@@ -74,6 +68,7 @@ resource "null_resource" "install_gpu_operator" {
   }
 
   depends_on = [
+    null_resource.prepare_shared_assets,
     null_resource.install_karpenter,
   ]
 }

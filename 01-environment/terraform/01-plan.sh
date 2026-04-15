@@ -17,16 +17,12 @@ command -v terraform >/dev/null 2>&1 || {
   exit 1
 }
 
-VAR_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfvar"
 AUTO_VAR_FILE="${SCRIPT_DIR}/${ENV_NAME}.auto.tfvars.json"
 PLAN_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfplan"
 
-if [[ ! -f "${VAR_FILE}" ]]; then
-  bash "${SCRIPT_DIR}/scripts/render-tfvars-from-env.sh" "${ENV_NAME}" "${AUTO_VAR_FILE}"
-  VAR_FILE="${AUTO_VAR_FILE}"
-fi
+bash "${SCRIPT_DIR}/scripts/render-tfvars-from-env.sh" "${ENV_NAME}" "${AUTO_VAR_FILE}"
 
 cd "${SCRIPT_DIR}"
 terraform fmt -check
 terraform validate
-terraform plan -var-file="${VAR_FILE}" -out="${PLAN_FILE}"
+terraform plan -var-file="${AUTO_VAR_FILE}" -out="${PLAN_FILE}"

@@ -16,6 +16,7 @@ ensure_aks_kubeconfig
 QWEN_LOADTEST_NAMESPACE="${QWEN_LOADTEST_NAMESPACE:-qwen-loadtest}"
 QWEN_LOADTEST_NAME="${QWEN_LOADTEST_NAME:-qwen-loadtest-target}"
 QWEN_LOADTEST_SERVICE_NAME="${QWEN_LOADTEST_SERVICE_NAME:-${QWEN_LOADTEST_NAME}}"
+QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_CERTIFICATE_NAME:-${QWEN_LOADTEST_NAME}}"
 QWEN_LOADTEST_GATEWAY_NAME="${QWEN_LOADTEST_GATEWAY_NAME:-qwen-loadtest-external}"
 QWEN_LOADTEST_TLS_SECRET_NAME="${QWEN_LOADTEST_TLS_SECRET_NAME:-qwen-loadtest-target-tls}"
 QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE:-aks-istio-ingress}"
@@ -40,6 +41,8 @@ else
     kubectl -n "${QWEN_LOADTEST_NAMESPACE}" get all --ignore-not-found || true
   fi
 fi
+
+kubectl delete certificate.cert-manager.io "${QWEN_LOADTEST_CERTIFICATE_NAME}" -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 
 if [[ "${DELETE_QWEN_LOADTEST_TLS_SECRET:-true}" == "true" ]]; then
   kubectl delete secret "${QWEN_LOADTEST_TLS_SECRET_NAME}" -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true

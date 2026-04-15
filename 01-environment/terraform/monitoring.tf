@@ -53,3 +53,32 @@ resource "azurerm_role_assignment" "grafana_monitoring_metrics_publisher" {
   role_definition_name = "Monitoring Metrics Publisher"
   principal_id         = azurerm_dashboard_grafana.main.identity[0].principal_id
 }
+
+resource "null_resource" "import_grafana_dashboards" {
+  count = var.grafana_dashboard_import_enabled ? 1 : 0
+
+  triggers = {
+    subscription_id      = var.subscription_id
+    resource_group_name  = azurerm_resource_group.main.name
+    grafana_name         = azurerm_dashboard_grafana.main.name
+    dashboard_bundle_sha = local.grafana_dashboard_hash
+    import_script_sha    = filesha256("${path.module}/../scripts/import-grafana-dashboards.sh")
+  }
+
+  provisioner "local-exec" {
+    command     = "bash ${path.module}/../scripts/import-grafana-dashboards.sh"
+    interpreter = ["/bin/bash", "-lc"]
+
+    environment = {
+      AZURE_SUBSCRIPTION_ID = self.triggers.subscription_id
+      RESOURCE_GROUP        = self.triggers.resource_group_name
+      GRAFANA_NAME          = self.triggers.grafana_name
+    }
+  }
+
+  depends_on = [
+    azurerm_dashboard_grafana.main,
+    azurerm_role_assignment.grafana_monitoring_data_reader,
+    azurerm_role_assignment.grafana_monitoring_metrics_publisher,
+  ]
+}

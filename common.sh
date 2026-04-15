@@ -83,8 +83,10 @@ apply_derived_config() {
   fi
 
   set_default_env AKS_DIAGNOSTIC_SETTING_NAME "aks-all-logs"
+  set_default_env TFSTATE_CONTAINER "tfstate"
+  set_default_env TFSTATE_USE_AZUREAD_AUTH "true"
   set_default_env MONITOR_WORKSPACE_PUBLIC_NETWORK_ACCESS_ENABLED "true"
-  set_default_env GRAFANA_MAJOR_VERSION "11"
+  set_default_env GRAFANA_MAJOR_VERSION "12"
   set_default_env SYSTEM_POOL_NAME "sysd4"
   set_default_env SYSTEM_VM_SIZE "Standard_D4ads_v6"
   set_default_env SYSTEM_NODE_COUNT "3"
@@ -115,6 +117,7 @@ apply_derived_config() {
   set_default_env ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME "azuremonitor-query"
   set_default_env ISTIO_KIALI_PROXY_SERVICE_NAME "azuremonitor-query"
   set_default_env GRAFANA_ADMIN_PRINCIPAL_IDS ""
+  set_default_env GRAFANA_DASHBOARD_IMPORT_ENABLED "true"
   set_default_env PROMETHEUS_RULE_GROUP_ENABLED "true"
   set_default_env PROMETHEUS_RULE_GROUP_INTERVAL "PT1M"
   set_default_env SERVICE_MONITOR_CRD_ENABLED "true"
@@ -124,10 +127,17 @@ apply_derived_config() {
   set_default_env KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME "keda-operator"
   set_default_env KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME "keda-operator"
   set_default_env KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME "${KEDA_PROMETHEUS_IDENTITY_NAME}-keda-operator"
+  set_default_env CERT_MANAGER_ENABLED "true"
+  set_default_env CERT_MANAGER_INGRESS_CLASS_NAME "istio"
+  set_default_env CERT_MANAGER_STAGING_ISSUER_NAME "letsencrypt-staging"
+  set_default_env CERT_MANAGER_PROD_ISSUER_NAME "letsencrypt-prod"
+  set_default_env CERT_MANAGER_INGRESS_GATEWAY_NAMESPACE "aks-istio-ingress"
+  set_default_env CERT_MANAGER_INGRESS_GATEWAY_SERVICE_NAME "aks-istio-ingressgateway-external"
 
   set_default_env KARPENTER_NAMESPACE "kube-system"
   set_default_env KARPENTER_SERVICE_ACCOUNT "karpenter-sa"
   set_default_env KARPENTER_IMAGE_REPO "quay.io/hydracz/karpenter-controller"
+  set_default_env KARPENTER_IMAGE_REPOSITORY "${KARPENTER_IMAGE_REPO}"
   set_default_env KARPENTER_IMAGE_TAG "v20260323-dev"
 
   set_default_env GPU_SKU_NAME "Standard_NC128lds_xl_RTXPRO6000BSE_v6"
@@ -182,6 +192,8 @@ apply_derived_config() {
   set_default_env QWEN_LOADTEST_TARGET_REPOSITORY "aks/qwen-loadtest-target"
   set_default_env QWEN_LOADTEST_CONTAINER_PORT "8080"
   set_default_env QWEN_LOADTEST_SERVICE_PORT "8080"
+  set_default_env QWEN_LOADTEST_CERTIFICATE_NAME "${QWEN_LOADTEST_NAME}"
+  set_default_env QWEN_LOADTEST_CERT_ISSUER_NAME "${CERT_MANAGER_PROD_ISSUER_NAME}"
   set_default_env QWEN_LOADTEST_GATEWAY_NAME "qwen-loadtest-external"
   set_default_env QWEN_LOADTEST_TLS_SECRET_NAME "qwen-loadtest-target-tls"
   set_default_env QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE "aks-istio-ingress"
@@ -246,6 +258,47 @@ ensure_tooling() {
   need_cmd python3
   need_cmd docker
   need_cmd helm
+}
+
+resolve_current_azure_principal_id() {
+  local account_type=""
+  local account_name=""
+  local principal_id=""
+  local resource_id=""
+
+  need_cmd az
+
+  account_type="$(az account show --query user.type -o tsv --only-show-errors 2>/dev/null || true)"
+  account_name="$(az account show --query user.name -o tsv --only-show-errors 2>/dev/null || true)"
+
+  if [[ "${account_type}" == "user" ]]; then
+    principal_id="$(az ad signed-in-user show --query id -o tsv --only-show-errors 2>/dev/null || true)"
+  elif [[ "${account_type}" == "servicePrincipal" ]]; then
+    if [[ "${account_name}" == "systemAssignedIdentity" ]]; then
+      need_cmd python3
+      resource_id="$(python3 <<'PY'
+import json
+import urllib.request
+
+url = "http://169.254.169.254/metadata/instance/compute?api-version=2021-02-01"
+request = urllib.request.Request(url, headers={"Metadata": "true"})
+try:
+    with urllib.request.urlopen(request, timeout=5) as response:
+        payload = json.load(response)
+    print(payload.get("resourceId", ""))
+except Exception:
+    print("")
+PY
+)"
+      [[ -n "${resource_id}" ]] || fail "Unable to resolve current VM resourceId from Azure instance metadata"
+      principal_id="$(az resource show --ids "${resource_id}" --query identity.principalId -o tsv --only-show-errors 2>/dev/null || true)"
+    else
+      principal_id="$(az ad sp show --id "${account_name}" --query id -o tsv --only-show-errors 2>/dev/null || true)"
+    fi
+  fi
+
+  [[ -n "${principal_id}" ]] || fail "Unable to resolve current Azure principal object id"
+  printf '%s\n' "${principal_id}"
 }
 
 aks_exists() {

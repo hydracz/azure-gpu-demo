@@ -11,19 +11,12 @@ monitor_workspace_name       = "amw-aks-karpenter-gpu"
 monitor_workspace_public_network_access_enabled = true
 log_analytics_workspace_name = "log-aks-karpenter-gpu"
 grafana_name                 = "amg-aks-karpenter-gpu"
-grafana_major_version        = 11
+grafana_major_version        = 12
 
 diagnostic_setting_name = "aks-all-logs"
 
-# 如果已有网络, 直接填写 existing_subnet_id, Terraform 将跳过 VNet/Subnet 创建。
-existing_subnet_id = ""
-
-# 如果由 Terraform 创建网络, 配置下面这些参数。
-network_resource_group_name = "rg-aks-karpenter-gpu-network"
-vnet_name                   = "vnet-aks-karpenter-gpu"
-vnet_address_space          = ["10.240.0.0/16"]
-aks_subnet_name             = "snet-aks-underlay"
-aks_subnet_address_prefixes = ["10.240.0.0/20"]
+# 由顶层 00-prepare 负责网络准备；这里直接引用已经准备好的 subnet id。
+existing_subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-aks-karpenter-gpu-net/providers/Microsoft.Network/virtualNetworks/vnet-aks-karpenter-gpu/subnets/snet-aks-underlay"
 
 system_pool_name  = "sysd4"
 system_vm_size    = "Standard_D4ads_v6"

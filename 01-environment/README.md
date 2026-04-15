@@ -10,6 +10,8 @@
 
 ## 建议边界
 
-- 这里负责 VNet/Subnet、ACR、Monitor Workspace、Log Analytics、Grafana、AKS，以及集群内的 Karpenter 和 GPU Operator 基础安装。
+- 这里负责 ACR、Monitor Workspace、Log Analytics、Grafana、AKS，以及集群内的 Karpenter 和 GPU Operator 基础安装。
+- 这里也负责把仓库内置 Grafana dashboard 导入 Azure Managed Grafana，避免环境创建后还要手工补看板。
+- 这里也负责 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer 这些平台级 TLS 基础能力，供后续 workload 直接复用。
 - Blob CSI、镜像构建、应用发布等能力放到后续阶段目录，不再塞回 01。
-- 用户侧 Helm 工作负载所依赖的上游镜像，会在安装前同步到当前 ACR，并优先从 ACR 拉取；AKS 托管 add-on 镜像不在这个覆盖范围内。
+- 共享前置准备步骤已经收口到顶层 00-prepare；01 只消费已经准备好的结果。

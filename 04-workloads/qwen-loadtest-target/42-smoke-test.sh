@@ -39,6 +39,7 @@ QWEN_LOADTEST_HOST="${QWEN_LOADTEST_HOST:-}"
 QWEN_LOADTEST_GATEWAY_IP="${QWEN_LOADTEST_GATEWAY_IP:-}"
 QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE:-aks-istio-ingress}"
 QWEN_LOADTEST_GATEWAY_SELECTOR="${QWEN_LOADTEST_GATEWAY_SELECTOR:-aks-istio-ingressgateway-external}"
+QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_CERTIFICATE_NAME:-${QWEN_LOADTEST_NAME}}"
 
 [[ -n "${QWEN_LOADTEST_URL}" ]] || fail "QWEN_LOADTEST_URL is empty. Run 41-deploy.sh first."
 [[ -n "${QWEN_LOADTEST_HOST}" ]] || fail "QWEN_LOADTEST_HOST is empty. Run 41-deploy.sh first."
@@ -76,7 +77,7 @@ EOF
 rm -f /tmp/resp-*.json /tmp/meta-*.txt
 for req in $(seq 1 "$TEST_CONCURRENCY"); do
   (
-    if curl -ksS --connect-timeout 10 --max-time "$REQUEST_TIMEOUT" \
+    if curl -sS --connect-timeout 10 --max-time "$REQUEST_TIMEOUT" \
       --resolve "$TARGET_HOST:443:$TARGET_IP" \
       -F image=@/tmp/tiny.png \
       -F prompt="smoke-test-${req}" \
@@ -104,7 +105,7 @@ for req in $(seq 1 "$TEST_CONCURRENCY"); do
 done'
 else
   seq 1 "${QWEN_LOADTEST_TEST_CONCURRENCY}" | xargs -I{} -P "${QWEN_LOADTEST_TEST_CONCURRENCY}" \
-    curl -ksS --connect-timeout 10 --max-time "${QWEN_LOADTEST_TEST_REQUEST_TIMEOUT}" \
+    curl -sS --connect-timeout 10 --max-time "${QWEN_LOADTEST_TEST_REQUEST_TIMEOUT}" \
     --resolve "${QWEN_LOADTEST_HOST}:443:${gateway_target_ip}" \
     -o /tmp/qwen-loadtest-response-{}.out \
     -w 'request={} status=%{http_code} total=%{time_total}\n' \
@@ -113,6 +114,9 @@ fi
 
 log "Current deployment status"
 kubectl -n "${QWEN_LOADTEST_NAMESPACE}" get deploy,pod,svc,hpa,scaledobject
+
+log "Current certificate status"
+kubectl -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" get certificate "${QWEN_LOADTEST_CERTIFICATE_NAME}" -o wide
 
 log "Recent ScaledObject condition"
 kubectl -n "${QWEN_LOADTEST_NAMESPACE}" describe scaledobject "${QWEN_LOADTEST_NAME}" | sed -n '1,220p'

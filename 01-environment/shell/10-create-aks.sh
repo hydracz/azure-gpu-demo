@@ -31,6 +31,8 @@ ensure_tooling
 : "${KEDA_PROMETHEUS_OPERATOR_SERVICE_ACCOUNT_NAME:=keda-operator}"
 : "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME:=keda-operator}"
 : "${KEDA_PROMETHEUS_FEDERATED_CREDENTIAL_NAME:=${KEDA_PROMETHEUS_IDENTITY_NAME}-keda-operator}"
+: "${CERT_MANAGER_ENABLED:=true}"
+: "${GRAFANA_DASHBOARD_IMPORT_ENABLED:=true}"
 
 [[ "${AKS_CREATE_RECOVERY_CHECKS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_CHECKS must be an integer, got: ${AKS_CREATE_RECOVERY_CHECKS}"
 [[ "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_INTERVAL_SECONDS must be an integer, got: ${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
@@ -38,12 +40,17 @@ ensure_tooling
 [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" || "${ISTIO_SERVICE_MESH_ENABLED}" == "false" ]] || fail "ISTIO_SERVICE_MESH_ENABLED must be true or false, got: ${ISTIO_SERVICE_MESH_ENABLED}"
 [[ "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}"
 [[ "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}"
+[[ "${CERT_MANAGER_ENABLED}" == "true" || "${CERT_MANAGER_ENABLED}" == "false" ]] || fail "CERT_MANAGER_ENABLED must be true or false, got: ${CERT_MANAGER_ENABLED}"
+
+if [[ "${CERT_MANAGER_ENABLED}" == "true" ]]; then
+  require_env CERT_MANAGER_ACME_EMAIL
+fi
 
 require_env \
   AZ_SUBSCRIPTION_ID LOCATION RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
   MONITOR_WORKSPACE_NAME LOG_ANALYTICS_WORKSPACE_NAME AKS_DIAGNOSTIC_SETTING_NAME \
   GRAFANA_NAME SYSTEM_POOL_NAME SYSTEM_VM_SIZE SYSTEM_NODE_COUNT \
-  VNET_SUBNET_ID
+  EXISTING_VNET_SUBNET_ID
 
 ensure_az_extension() {
   local extension_name="$1"
@@ -500,8 +507,8 @@ if [[ -z "${monitor_workspace_query_endpoint}" || "${monitor_workspace_query_end
   monitor_workspace_query_endpoint="$(az monitor account show --name "${MONITOR_WORKSPACE_NAME}" --resource-group "${RESOURCE_GROUP}" --query 'metrics.prometheusQueryEndpoint' -o tsv --only-show-errors 2>/dev/null || true)"
 fi
 
-if ! az network vnet subnet show --ids "${VNET_SUBNET_ID}" --only-show-errors >/dev/null 2>&1; then
-  fail "Custom subnet ${VNET_SUBNET_ID} not found. Run 05-create-network.sh first or set VNET_SUBNET_ID to an existing subnet."
+if ! az network vnet subnet show --ids "${EXISTING_VNET_SUBNET_ID}" --only-show-errors >/dev/null 2>&1; then
+  fail "Custom subnet ${EXISTING_VNET_SUBNET_ID} not found. Run ./00-prepare/00-prepare.sh first or set EXISTING_VNET_SUBNET_ID to an existing subnet."
 fi
 
 create_aks_cluster() {
@@ -524,7 +531,7 @@ create_aks_cluster() {
     --nodepool-name "${SYSTEM_POOL_NAME}" \
     --node-vm-size "${SYSTEM_VM_SIZE}" \
     --node-count "${SYSTEM_NODE_COUNT}" \
-    --vnet-subnet-id "${VNET_SUBNET_ID}" \
+    --vnet-subnet-id "${EXISTING_VNET_SUBNET_ID}" \
     --network-plugin azure \
     --network-plugin-mode overlay \
     --network-dataplane cilium \
@@ -577,7 +584,7 @@ create_aks_cluster() {
 
 # ── AKS 集群 (不开启 cluster-autoscaler) ─────────────────────────
 if ! aks_exists; then
-  log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${VNET_SUBNET_ID}"
+  log "Creating AKS cluster ${CLUSTER_NAME} with Azure CNI overlay + Cilium on custom subnet ${EXISTING_VNET_SUBNET_ID}"
   create_aks_cluster
   aks_cluster_created="true"
 else
@@ -652,6 +659,16 @@ node_resource_group="$(az aks show --resource-group "${RESOURCE_GROUP}" --name "
 ensure_azure_service_mesh
 ensure_keda_prometheus_auth
 
+if [[ "${CERT_MANAGER_ENABLED}" == "true" ]]; then
+  log "Deploying cert-manager and Let's Encrypt issuers"
+  bash "${SCRIPT_DIR}/12-deploy-cert-manager.sh"
+fi
+
+if [[ "${GRAFANA_DASHBOARD_IMPORT_ENABLED}" == "true" ]]; then
+  log "Importing Grafana dashboards"
+  bash "${SCRIPT_DIR}/19-import-grafana-dashboards.sh"
+fi
+
 service_mesh_revisions_csv="$(current_service_mesh_revisions)"
 
 write_generated_env AZ_SUBSCRIPTION_ID "${AZ_SUBSCRIPTION_ID}"
@@ -669,8 +686,8 @@ write_generated_env AKS_ENDPOINT "https://${aks_endpoint}"
 write_generated_env CLUSTER_ENDPOINT "https://${aks_endpoint}"
 write_generated_env NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env AZURE_NODE_RESOURCE_GROUP "${node_resource_group}"
-write_generated_env AKS_SUBNET_ID "${VNET_SUBNET_ID}"
-write_generated_env VNET_SUBNET_ID "${VNET_SUBNET_ID}"
+write_generated_env AKS_SUBNET_ID "${EXISTING_VNET_SUBNET_ID}"
+write_generated_env EXISTING_VNET_SUBNET_ID "${EXISTING_VNET_SUBNET_ID}"
 write_generated_env SERVICE_MESH_MODE "$([[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]] && printf '%s' Istio || printf '%s' Disabled)"
 write_generated_env ISTIO_REVISIONS_CSV "${service_mesh_revisions_csv}"
 write_generated_env SERVICE_MESH_REVISIONS_CSV "${service_mesh_revisions_csv}"
@@ -678,14 +695,19 @@ write_generated_env MONITOR_WORKSPACE_ID "${monitor_workspace_id}"
 write_generated_env MONITOR_WORKSPACE_QUERY_ENDPOINT "${monitor_workspace_query_endpoint}"
 write_generated_env LOG_ANALYTICS_WORKSPACE_ID "${log_analytics_workspace_id}"
 write_generated_env GRAFANA_ID "${grafana_id}"
+write_generated_env CERT_MANAGER_INGRESS_CLASS_NAME "${CERT_MANAGER_INGRESS_CLASS_NAME}"
+write_generated_env CERT_MANAGER_STAGING_ISSUER_NAME "${CERT_MANAGER_STAGING_ISSUER_NAME}"
+write_generated_env CERT_MANAGER_PROD_ISSUER_NAME "${CERT_MANAGER_PROD_ISSUER_NAME}"
 write_generated_env KUBECTL_CREDENTIALS_COMMAND "az aks get-credentials --resource-group ${RESOURCE_GROUP} --name ${CLUSTER_NAME} --overwrite-existing"
 
 log "Cluster bootstrap completed (no cluster-autoscaler, no user node pools)"
 log "AKS network mode      → Azure CNI overlay + Cilium"
 log "AKS service mesh      → ${service_mesh_revisions_csv:-disabled}"
 log "AKS Blob CSI Driver   → ${AKS_ENABLE_BLOB_DRIVER}"
-log "AKS node subnet       → ${VNET_SUBNET_ID}"
+log "AKS node subnet       → ${EXISTING_VNET_SUBNET_ID}"
 log "AKS diagnostic logs → Log Analytics Workspace ${LOG_ANALYTICS_WORKSPACE_NAME}"
 log "KEDA Prometheus auth  → ${KEDA_PROMETHEUS_AUTH_NAME}"
+log "cert-manager         → ${CERT_MANAGER_ENABLED}"
+log "Grafana dashboards   → ${GRAFANA_DASHBOARD_IMPORT_ENABLED}"
 log "Next step: run 01-environment/shell/15-deploy-karpenter.sh to deploy Karpenter"
 kubectl get nodes -L agentpool

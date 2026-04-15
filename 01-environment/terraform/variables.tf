@@ -25,8 +25,20 @@ variable "aks_identity_name" {
 }
 
 variable "acr_name" {
-  description = "Azure Container Registry name"
+  description = "Azure Container Registry name when Terraform creates the registry"
   type        = string
+  default     = ""
+}
+
+variable "existing_acr_id" {
+  description = "Existing Azure Container Registry resource id. Leave empty to let Terraform create the registry."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.existing_acr_id == "" || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.ContainerRegistry/registries/[^/]+$", var.existing_acr_id))
+    error_message = "existing_acr_id must be a full Azure resource id for an Azure Container Registry."
+  }
 }
 
 variable "monitor_workspace_name" {
@@ -53,7 +65,7 @@ variable "grafana_name" {
 variable "grafana_major_version" {
   description = "Managed Grafana major version"
   type        = number
-  default     = 11
+  default     = 12
 }
 
 variable "diagnostic_setting_name" {
@@ -63,39 +75,13 @@ variable "diagnostic_setting_name" {
 }
 
 variable "existing_subnet_id" {
-  description = "Existing AKS subnet id. Leave empty to create network resources in Terraform."
+  description = "Existing AKS subnet id prepared by 00-prepare."
   type        = string
-  default     = ""
-}
 
-variable "network_resource_group_name" {
-  description = "Network resource group name when Terraform manages the VNet"
-  type        = string
-  default     = ""
-}
-
-variable "vnet_name" {
-  description = "VNet name when Terraform manages the network"
-  type        = string
-  default     = ""
-}
-
-variable "vnet_address_space" {
-  description = "Address space for the managed VNet"
-  type        = list(string)
-  default     = ["10.240.0.0/16"]
-}
-
-variable "aks_subnet_name" {
-  description = "AKS subnet name when Terraform manages the network"
-  type        = string
-  default     = "snet-aks-underlay"
-}
-
-variable "aks_subnet_address_prefixes" {
-  description = "Address prefixes for the AKS subnet when Terraform manages the network"
-  type        = list(string)
-  default     = ["10.240.0.0/20"]
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+/subnets/[^/]+$", var.existing_subnet_id))
+    error_message = "existing_subnet_id must be a full Azure subnet resource id prepared by 00-prepare."
+  }
 }
 
 variable "system_pool_name" {
@@ -162,6 +148,53 @@ variable "istio_external_ingress_gateway_enabled" {
   description = "Whether to enable the AKS managed Istio external ingress gateway"
   type        = bool
   default     = true
+}
+
+variable "cert_manager_enabled" {
+  description = "Whether to install cert-manager, the Istio IngressClass, and Let's Encrypt ClusterIssuers"
+  type        = bool
+  default     = true
+}
+
+variable "cert_manager_acme_email" {
+  description = "Email address used to register the Let's Encrypt ACME account"
+  type        = string
+  default     = ""
+}
+
+variable "cert_manager_ingress_class_name" {
+  description = "IngressClass name used by cert-manager HTTP-01 solver"
+  type        = string
+  default     = "istio"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.cert_manager_ingress_class_name))
+    error_message = "cert_manager_ingress_class_name must be a valid lowercase Kubernetes resource name."
+  }
+}
+
+variable "cert_manager_staging_issuer_name" {
+  description = "ClusterIssuer name for Let's Encrypt staging"
+  type        = string
+  default     = "letsencrypt-staging"
+}
+
+variable "cert_manager_prod_issuer_name" {
+  description = "ClusterIssuer name for Let's Encrypt production"
+  type        = string
+  default     = "letsencrypt-prod"
+}
+
+variable "cert_manager_ingress_gateway_namespace" {
+  description = "Namespace of the AKS managed Istio external ingress gateway service used for HTTP-01 validation"
+  type        = string
+  default     = "aks-istio-ingress"
+}
+
+variable "cert_manager_ingress_gateway_service_name" {
+  description = "Service name of the AKS managed Istio external ingress gateway used for HTTP-01 validation"
+  type        = string
+  default     = "aks-istio-ingressgateway-external"
 }
 
 variable "istio_internal_ingress_gateway_min_replicas" {
@@ -271,6 +304,12 @@ variable "grafana_admin_principal_ids" {
 
 variable "grafana_public_network_access_enabled" {
   description = "Whether Managed Grafana public network access is enabled"
+  type        = bool
+  default     = true
+}
+
+variable "grafana_dashboard_import_enabled" {
+  description = "Whether Terraform should import the built-in dashboards into Azure Managed Grafana"
   type        = bool
   default     = true
 }

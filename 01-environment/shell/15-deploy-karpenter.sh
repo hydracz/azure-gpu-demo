@@ -14,10 +14,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../scripts/image-sync-lib.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../scripts/karpenter-image-sync.sh"
 
 load_env
 ensure_tooling
@@ -40,15 +36,13 @@ KARPENTER_CHART_DIR="${ROOT_DIR}/01-environment/charts"
 require_env \
   AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION ACR_NAME \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_IDENTITY_NAME \
-  KARPENTER_IMAGE_REPO KARPENTER_IMAGE_TAG \
+  KARPENTER_IMAGE_REPO KARPENTER_IMAGE_TAG KARPENTER_TARGET_IMAGE_REPOSITORY \
   GPU_SKU_NAME GPU_TYPE INSTALL_GPU_DRIVERS \
   CONSOLIDATE_AFTER SPOT_MAX_PRICE \
-  GPU_ZONES VNET_SUBNET_ID
+  GPU_ZONES EXISTING_VNET_SUBNET_ID
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
-
-sync_karpenter_image
 
 # ── 加载 .generated.env 中集群信息 ─────────────────────────────────
 require_env AKS_OIDC_ISSUER AKS_ENDPOINT NODE_RESOURCE_GROUP
@@ -106,7 +100,7 @@ vnet_subnet_id="$(az vmss show \
   -o tsv \
   --only-show-errors)"
 [[ -n "${vnet_subnet_id}" ]] || fail "Unable to determine vnet subnet id from VMSS ${system_vmss_name}"
-[[ "${vnet_subnet_id}" == "${VNET_SUBNET_ID}" ]] || fail "AKS is using subnet ${vnet_subnet_id}, but configured VNET_SUBNET_ID is ${VNET_SUBNET_ID}"
+[[ "${vnet_subnet_id}" == "${EXISTING_VNET_SUBNET_ID}" ]] || fail "AKS is using subnet ${vnet_subnet_id}, but configured EXISTING_VNET_SUBNET_ID is ${EXISTING_VNET_SUBNET_ID}"
 vnet_id="$(az network vnet show --ids "${vnet_subnet_id%/subnets/*}" --query id -o tsv --only-show-errors)"
 [[ -n "${vnet_id}" ]] || fail "Unable to determine parent vnet id from subnet ${vnet_subnet_id}"
 
@@ -166,7 +160,7 @@ PY
 )"
 
 write_generated_env KUBELET_BOOTSTRAP_TOKEN "${kubelet_bootstrap_token}"
-write_generated_env VNET_SUBNET_ID "${vnet_subnet_id}"
+write_generated_env EXISTING_VNET_SUBNET_ID "${vnet_subnet_id}"
 write_generated_env SSH_PUBLIC_KEY "${ssh_public_key}"
 write_generated_env NETWORK_PLUGIN "${network_plugin}"
 write_generated_env NETWORK_PLUGIN_MODE "${network_plugin_mode}"
@@ -206,7 +200,7 @@ controller:
       value: "${kubelet_bootstrap_token}"
     - name: SSH_PUBLIC_KEY
       value: "${ssh_public_key}"
-    - name: VNET_SUBNET_ID
+    - name: EXISTING_VNET_SUBNET_ID
       value: "${vnet_subnet_id}"
     - name: AZURE_NODE_RESOURCE_GROUP
       value: "${NODE_RESOURCE_GROUP}"

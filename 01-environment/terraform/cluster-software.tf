@@ -165,6 +165,7 @@ resource "null_resource" "persist_aks_kubeconfig" {
 
   depends_on = [
     null_resource.install_karpenter,
+    null_resource.install_cert_manager,
     null_resource.install_istio_addons,
     null_resource.install_keda_prometheus_auth,
     null_resource.install_gpu_operator,

@@ -15,7 +15,7 @@ output "cluster_name" {
 }
 
 output "network_resource_group_name" {
-  value = local.create_network ? azurerm_resource_group.network[0].name : null
+  value = local.network_resource_group_name
 }
 
 output "aks_subnet_id" {
@@ -46,6 +46,18 @@ output "monitor_workspace_query_endpoint" {
   value = azurerm_monitor_workspace.main.query_endpoint
 }
 
+output "cert_manager_ingress_class_name" {
+  value = var.cert_manager_enabled ? var.cert_manager_ingress_class_name : null
+}
+
+output "cert_manager_staging_issuer_name" {
+  value = var.cert_manager_enabled ? var.cert_manager_staging_issuer_name : null
+}
+
+output "cert_manager_prod_issuer_name" {
+  value = var.cert_manager_enabled ? var.cert_manager_prod_issuer_name : null
+}
+
 output "keda_prometheus_auth_name" {
   value = var.keda_prometheus_auth_name
 }
@@ -71,15 +83,15 @@ output "node_resource_group" {
 }
 
 output "acr_id" {
-  value = azurerm_container_registry.main.id
+  value = local.acr_id
 }
 
 output "acr_name" {
-  value = azurerm_container_registry.main.name
+  value = local.acr_name
 }
 
 output "acr_login_server" {
-  value = azurerm_container_registry.main.login_server
+  value = local.acr_login_server
 }
 
 output "monitor_workspace_id" {

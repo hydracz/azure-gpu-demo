@@ -1,0 +1,30 @@
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: __CERT_MANAGER_STAGING_ISSUER_NAME__
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: __CERT_MANAGER_ACME_EMAIL__
+    privateKeySecretRef:
+      name: __CERT_MANAGER_STAGING_ISSUER_NAME__
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: __CERT_MANAGER_INGRESS_CLASS_NAME__
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: __CERT_MANAGER_PROD_ISSUER_NAME__
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: __CERT_MANAGER_ACME_EMAIL__
+    privateKeySecretRef:
+      name: __CERT_MANAGER_PROD_ISSUER_NAME__
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: __CERT_MANAGER_INGRESS_CLASS_NAME__

@@ -23,18 +23,17 @@ if [[ -n "${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY_OVERRIDE}" ]]; then
   QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY="${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY_OVERRIDE}"
 fi
 need_cmd kubectl
-need_cmd openssl
+need_cmd python3
 
 require_env \
   AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME MONITOR_WORKSPACE_QUERY_ENDPOINT
 
-if [[ -z "${QWEN_LOADTEST_TARGET_IMAGE_OVERRIDE}" ]]; then
-  bash "${SCRIPT_DIR}/40-sync-image.sh"
+if [[ -f "${GENERATED_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${GENERATED_ENV_FILE}"
+  set +a
 fi
-set -a
-# shellcheck disable=SC1090
-source "${GENERATED_ENV_FILE}"
-set +a
 if [[ -n "${QWEN_LOADTEST_TARGET_IMAGE_OVERRIDE}" ]]; then
   QWEN_LOADTEST_TARGET_IMAGE="${QWEN_LOADTEST_TARGET_IMAGE_OVERRIDE}"
 fi
@@ -57,6 +56,8 @@ QWEN_LOADTEST_NAME="${QWEN_LOADTEST_NAME:-qwen-loadtest-target}"
 QWEN_LOADTEST_SERVICE_NAME="${QWEN_LOADTEST_SERVICE_NAME:-${QWEN_LOADTEST_NAME}}"
 QWEN_LOADTEST_GATEWAY_NAME="${QWEN_LOADTEST_GATEWAY_NAME:-qwen-loadtest-external}"
 QWEN_LOADTEST_TLS_SECRET_NAME="${QWEN_LOADTEST_TLS_SECRET_NAME:-qwen-loadtest-target-tls}"
+QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_CERTIFICATE_NAME:-${QWEN_LOADTEST_NAME}}"
+QWEN_LOADTEST_CERT_ISSUER_NAME="${QWEN_LOADTEST_CERT_ISSUER_NAME:-${CERT_MANAGER_PROD_ISSUER_NAME:-letsencrypt-prod}}"
 QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE:-aks-istio-ingress}"
 QWEN_LOADTEST_GATEWAY_SELECTOR="${QWEN_LOADTEST_GATEWAY_SELECTOR:-aks-istio-ingressgateway-external}"
 QWEN_LOADTEST_KEDA_AUTH_NAME="${QWEN_LOADTEST_KEDA_AUTH_NAME:-${KEDA_PROMETHEUS_AUTH_NAME:-azure-managed-prometheus}}"
@@ -110,6 +111,47 @@ ensure_namespace_with_revision() {
 ensure_shared_keda_auth() {
   if ! kubectl get clustertriggerauthentication.keda.sh "${QWEN_LOADTEST_KEDA_AUTH_NAME}" >/dev/null 2>&1; then
     fail "Shared KEDA ClusterTriggerAuthentication ${QWEN_LOADTEST_KEDA_AUTH_NAME} not found. Run the environment bootstrap first so KEDA can query Azure Managed Prometheus."
+  fi
+}
+
+ensure_cert_manager_ready() {
+  local ingress_class_name="${CERT_MANAGER_INGRESS_CLASS_NAME:-istio}"
+  local issuer_ready
+
+  kubectl get ingressclass "${ingress_class_name}" >/dev/null 2>&1 || fail "IngressClass ${ingress_class_name} not found. Run the environment bootstrap first."
+  kubectl get clusterissuer "${QWEN_LOADTEST_CERT_ISSUER_NAME}" >/dev/null 2>&1 || fail "ClusterIssuer ${QWEN_LOADTEST_CERT_ISSUER_NAME} not found. Run the environment bootstrap first."
+
+  issuer_ready="$(kubectl get clusterissuer "${QWEN_LOADTEST_CERT_ISSUER_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+  [[ "${issuer_ready}" == "True" ]] || fail "ClusterIssuer ${QWEN_LOADTEST_CERT_ISSUER_NAME} is not Ready. Check cert-manager installation first."
+}
+
+ensure_host_resolves_to_gateway_ip() {
+  local host="$1"
+  local expected_ip="$2"
+  local attempts="${3:-18}"
+  local attempt
+  local resolved
+
+  for attempt in $(seq 1 "${attempts}"); do
+    resolved="$(python3 - "${host}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+ips = sorted({item[4][0] for item in socket.getaddrinfo(host, None, family=socket.AF_INET)})
+print(",".join(ips))
+PY
+ 2>/dev/null || true)"
+
+    if [[ ",${resolved}," == *",${expected_ip},"* ]]; then
+      return 0
+    fi
+
+    warn "Waiting for ${host} to resolve to ${expected_ip} (${attempt}/${attempts}); current A records: ${resolved:-none}"
+    sleep 10
+  done
+
+  fail "Host ${host} does not resolve to external gateway IP ${expected_ip}. Update DNS first or leave QWEN_LOADTEST_HOST empty to use sslip.io."
 }
 
 ensure_image_pull_secret() {
@@ -126,13 +168,38 @@ ensure_image_pull_secret() {
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 }
 
-[[ -n "${QWEN_LOADTEST_TARGET_IMAGE}" ]] || fail "QWEN_LOADTEST_TARGET_IMAGE is empty. Run 40-sync-image.sh first."
+wait_for_certificate_ready() {
+  local namespace="$1"
+  local name="$2"
+  local attempts="${3:-90}"
+  local attempt
+  local ready
+  local secret_pem
+
+  for attempt in $(seq 1 "${attempts}"); do
+    ready="$(kubectl get certificate "${name}" -n "${namespace}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
+    secret_pem="$(kubectl get secret "${QWEN_LOADTEST_TLS_SECRET_NAME}" -n "${namespace}" -o jsonpath='{.data.tls\.crt}' 2>/dev/null || true)"
+    if [[ "${ready}" == "True" && -n "${secret_pem}" ]]; then
+      return 0
+    fi
+
+    warn "Waiting for Certificate ${namespace}/${name} to become Ready (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  kubectl get certificate,certificaterequest,order,challenge,ingress -n "${namespace}" 2>/dev/null || true
+  kubectl describe certificate "${name}" -n "${namespace}" 2>/dev/null || true
+  fail "Certificate ${namespace}/${name} was not issued in time"
+}
+
+[[ -n "${QWEN_LOADTEST_TARGET_IMAGE}" ]] || fail "QWEN_LOADTEST_TARGET_IMAGE is empty. Run 00-prepare/10-sync-qwen-model.sh first, or export QWEN_LOADTEST_TARGET_IMAGE explicitly."
 [[ -n "${QWEN_LOADTEST_GPU_TYPE}" ]] || fail "QWEN_LOADTEST_GPU_TYPE or GPU_TYPE is required"
 
 QWEN_LOADTEST_ISTIO_REVISION="$(resolve_istio_revision)"
 ensure_namespace_with_revision "${QWEN_LOADTEST_NAMESPACE}" "${QWEN_LOADTEST_ISTIO_REVISION}"
 ensure_image_pull_secret
 ensure_shared_keda_auth
+ensure_cert_manager_ready
 
 external_gateway_ip="$(kubectl get service "${QWEN_LOADTEST_GATEWAY_SELECTOR}" -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
 [[ -n "${external_gateway_ip}" ]] || fail "Unable to resolve external Istio gateway IP from ${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}/${QWEN_LOADTEST_GATEWAY_SELECTOR}"
@@ -140,6 +207,8 @@ external_gateway_ip="$(kubectl get service "${QWEN_LOADTEST_GATEWAY_SELECTOR}" -
 if [[ -z "${QWEN_LOADTEST_HOST:-}" ]]; then
   QWEN_LOADTEST_HOST="${QWEN_LOADTEST_NAME}.${external_gateway_ip}.sslip.io"
 fi
+
+ensure_host_resolves_to_gateway_ip "${QWEN_LOADTEST_HOST}" "${external_gateway_ip}"
 
 QWEN_LOADTEST_URL="https://${QWEN_LOADTEST_HOST}"
 QWEN_LOADTEST_UPSTREAM_CLUSTER="outbound|${QWEN_LOADTEST_SERVICE_PORT}||${QWEN_LOADTEST_SERVICE_NAME}.${QWEN_LOADTEST_NAMESPACE}.svc.cluster.local"
@@ -157,39 +226,6 @@ if [[ "${QWEN_LOADTEST_TARGET_IMAGE}" == "${QWEN_LOADTEST_SOURCE_LOGIN_SERVER}/"
 EOF
 )"
 fi
-
-tls_tmp_dir="$(mktemp -d)"
-trap 'rm -rf "${tls_tmp_dir}"' EXIT
-
-cat >"${tls_tmp_dir}/openssl.cnf" <<EOF
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
-
-[req_distinguished_name]
-CN = ${QWEN_LOADTEST_HOST}
-
-[v3_req]
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = ${QWEN_LOADTEST_HOST}
-EOF
-
-openssl req \
-  -x509 \
-  -nodes \
-  -days 365 \
-  -newkey rsa:2048 \
-  -keyout "${tls_tmp_dir}/tls.key" \
-  -out "${tls_tmp_dir}/tls.crt" \
-  -config "${tls_tmp_dir}/openssl.cnf" >/dev/null 2>&1
-
-kubectl -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" create secret tls "${QWEN_LOADTEST_TLS_SECRET_NAME}" \
-  --cert="${tls_tmp_dir}/tls.crt" \
-  --key="${tls_tmp_dir}/tls.key" \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: apps/v1
@@ -284,6 +320,29 @@ spec:
     - name: http
       port: ${QWEN_LOADTEST_SERVICE_PORT}
       targetPort: http
+EOF
+
+kubectl delete gateway.networking.istio.io "${QWEN_LOADTEST_GATEWAY_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete virtualservice.networking.istio.io "${QWEN_LOADTEST_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+
+cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ${QWEN_LOADTEST_CERTIFICATE_NAME}
+  namespace: ${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}
+spec:
+  secretName: ${QWEN_LOADTEST_TLS_SECRET_NAME}
+  issuerRef:
+    kind: ClusterIssuer
+    name: ${QWEN_LOADTEST_CERT_ISSUER_NAME}
+  dnsNames:
+    - ${QWEN_LOADTEST_HOST}
+EOF
+
+wait_for_certificate_ready "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" "${QWEN_LOADTEST_CERTIFICATE_NAME}"
+
+cat <<EOF | kubectl apply -f - >/dev/null
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
@@ -410,6 +469,8 @@ write_generated_env QWEN_LOADTEST_GATEWAY_IP "${external_gateway_ip}"
 write_generated_env QWEN_LOADTEST_TEST_MODE "${QWEN_LOADTEST_TEST_MODE}"
 write_generated_env QWEN_LOADTEST_TEST_PATH "${QWEN_LOADTEST_TEST_PATH}"
 write_generated_env QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY "${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY}"
+write_generated_env QWEN_LOADTEST_CERTIFICATE_NAME "${QWEN_LOADTEST_CERTIFICATE_NAME}"
+write_generated_env QWEN_LOADTEST_CERT_ISSUER_NAME "${QWEN_LOADTEST_CERT_ISSUER_NAME}"
 write_generated_env QWEN_LOADTEST_TLS_SECRET_NAME "${QWEN_LOADTEST_TLS_SECRET_NAME}"
 write_generated_env QWEN_LOADTEST_GATEWAY_SELECTOR "${QWEN_LOADTEST_GATEWAY_SELECTOR}"
 write_generated_env QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}"
@@ -423,6 +484,7 @@ log "  namespace       : ${QWEN_LOADTEST_NAMESPACE}"
 log "  target image    : ${QWEN_LOADTEST_TARGET_IMAGE}"
 log "  istio revision  : ${QWEN_LOADTEST_ISTIO_REVISION}"
 log "  gateway selector: ${QWEN_LOADTEST_GATEWAY_SELECTOR}"
+log "  tls issuer      : ${QWEN_LOADTEST_CERT_ISSUER_NAME}"
 log "  url             : ${QWEN_LOADTEST_URL}"
 log "  gateway ip      : ${external_gateway_ip}"
 log "  keda query      : ${QWEN_LOADTEST_KEDA_QUERY}"

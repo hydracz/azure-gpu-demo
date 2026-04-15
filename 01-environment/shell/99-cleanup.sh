@@ -9,7 +9,6 @@
 #   - 卸载 Karpenter
 #   - 删除 AKS 集群
 #   - 删除 Resource Group (需设置 DELETE_RESOURCE_GROUP=true)
-#   - 删除网络 Resource Group (需设置 DELETE_NETWORK_RESOURCE_GROUP=true)
 #   - 清理本地 .generated.env 文件
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -28,6 +27,7 @@ CLEANUP_NAMESPACE_WAIT_TIMEOUT="${CLEANUP_NAMESPACE_WAIT_TIMEOUT:-300}"
 CLEANUP_RG_WAIT_TIMEOUT="${CLEANUP_RG_WAIT_TIMEOUT:-1200}"
 AKS_DELETE_TIMEOUT="${AKS_DELETE_TIMEOUT:-1800}"
 QWEN_DESTROY_SCRIPT="${ROOT_DIR}/04-workloads/qwen-loadtest-target/43-destroy.sh"
+CERT_MANAGER_DESTROY_SCRIPT="${ROOT_DIR}/01-environment/shell/13-destroy-cert-manager.sh"
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 
@@ -44,6 +44,11 @@ if aks_exists; then
     log "Deleting qwen loadtest resources before removing shared platform components"
     DELETE_QWEN_LOADTEST_NAMESPACE="${DELETE_QWEN_LOADTEST_NAMESPACE:-true}" \
       "${QWEN_DESTROY_SCRIPT}" || warn "Qwen loadtest cleanup did not finish cleanly; continuing cleanup"
+  fi
+
+  if [[ "${CLEANUP_CERT_MANAGER:-true}" == "true" && -x "${CERT_MANAGER_DESTROY_SCRIPT}" ]]; then
+    log "Deleting cert-manager platform resources"
+    "${CERT_MANAGER_DESTROY_SCRIPT}" || warn "cert-manager cleanup did not finish cleanly; continuing cleanup"
   fi
 
   # 先删除测试应用, 释放 Pod, 否则 nodeclaim 无法回收
@@ -150,23 +155,7 @@ else
   fi
 fi
 
-# ── 4. 删除网络 Resource Group ────────────────────────────────────
-if [[ -n "${NETWORK_RESOURCE_GROUP:-}" && "${NETWORK_RESOURCE_GROUP}" != "${RESOURCE_GROUP}" ]]; then
-  if [[ "${DELETE_NETWORK_RESOURCE_GROUP:-false}" == "true" ]]; then
-    exists="$(az group exists --name "${NETWORK_RESOURCE_GROUP}" --only-show-errors)"
-    if [[ "${exists}" == "true" ]]; then
-      log "Deleting network resource group ${NETWORK_RESOURCE_GROUP}"
-      az group delete --name "${NETWORK_RESOURCE_GROUP}" --yes --no-wait --only-show-errors >/dev/null || true
-    else
-      log "Network resource group ${NETWORK_RESOURCE_GROUP} does not exist"
-    fi
-  else
-    log "Custom network resource group ${NETWORK_RESOURCE_GROUP} is not deleted by default."
-    log "Set DELETE_NETWORK_RESOURCE_GROUP=true to also remove it."
-  fi
-fi
-
-# ── 5. 清理本地文件 ───────────────────────────────────────────────
+# ── 4. 清理本地文件 ───────────────────────────────────────────────
 log "Removing local generated env file"
 if [[ -f "${GENERATED_ENV_FILE}" ]]; then
   rm -f "${GENERATED_ENV_FILE}"

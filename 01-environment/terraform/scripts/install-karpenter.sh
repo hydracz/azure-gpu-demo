@@ -3,10 +3,13 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/karpenter-image-sync.sh"
+
+if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${SHARED_ENV_FILE}"
+  set +a
+fi
 
 need_cmd helm
 need_cmd kubectl
@@ -16,7 +19,7 @@ need_cmd az
 for required_var in \
   KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP LOCATION CLUSTER_NAME AKS_ENDPOINT SYSTEM_POOL_NAME \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_CLIENT_ID KARPENTER_CHART_DIR \
-  KARPENTER_CRD_CHART_DIR KARPENTER_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG ACR_NAME VNET_SUBNET_ID \
+  KARPENTER_CRD_CHART_DIR KARPENTER_TARGET_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG EXISTING_VNET_SUBNET_ID \
   AZURE_NODE_RESOURCE_GROUP KUBELET_IDENTITY_CLIENT_ID NODE_IDENTITIES NETWORK_PLUGIN \
   NETWORK_PLUGIN_MODE NETWORK_POLICY SSH_PUBLIC_KEY GPU_NODE_IMAGE_FAMILY GPU_OS_DISK_SIZE_GB \
   INSTALL_GPU_DRIVERS GPU_ZONES_CSV GPU_SKU_NAME GPU_TYPE SPOT_MAX_PRICE CONSOLIDATE_AFTER \
@@ -27,8 +30,6 @@ done
 
 [[ -d "${KARPENTER_CHART_DIR}" ]] || fail "Karpenter chart not found: ${KARPENTER_CHART_DIR}"
 [[ -d "${KARPENTER_CRD_CHART_DIR}" ]] || fail "Karpenter CRD chart not found: ${KARPENTER_CRD_CHART_DIR}"
-
-sync_karpenter_image
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
@@ -73,8 +74,8 @@ controller:
       value: "${kubelet_bootstrap_token}"
     - name: SSH_PUBLIC_KEY
       value: "${SSH_PUBLIC_KEY}"
-    - name: VNET_SUBNET_ID
-      value: "${VNET_SUBNET_ID}"
+    - name: EXISTING_VNET_SUBNET_ID
+      value: "${EXISTING_VNET_SUBNET_ID}"
     - name: AZURE_NODE_RESOURCE_GROUP
       value: "${AZURE_NODE_RESOURCE_GROUP}"
     - name: AZURE_SUBSCRIPTION_ID
@@ -129,7 +130,7 @@ metadata:
     kubernetes.io/description: "GPU AKSNodeClass - overlay node subnet, 1TiB ephemeral OS disk, skip GPU driver installation"
 spec:
   imageFamily: ${GPU_NODE_IMAGE_FAMILY}
-  vnetSubnetID: ${VNET_SUBNET_ID}
+  vnetSubnetID: ${EXISTING_VNET_SUBNET_ID}
   osDiskSizeGB: ${GPU_OS_DISK_SIZE_GB}
   installGPUDrivers: ${INSTALL_GPU_DRIVERS}
 EOF

@@ -4,20 +4,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/gpu-operator-image-sync.sh"
+source "${SCRIPT_DIR}/../../../00-prepare/scripts/gpu-operator-image-sync.sh"
+
+if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${SHARED_ENV_FILE}"
+  set +a
+fi
 
 need_cmd helm
 need_cmd kubectl
-need_cmd az
 
 for required_var in \
-  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME ACR_NAME GPU_OPERATOR_CHART_DIR \
+  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_OPERATOR_CHART_DIR \
   GPU_OPERATOR_NAMESPACE GPU_DRIVER_CR_NAME GPU_DRIVER_NODE_SELECTOR_KEY GPU_DRIVER_NODE_SELECTOR_VALUE \
-  GPU_DRIVER_SOURCE_REPOSITORY GPU_DRIVER_IMAGE GPU_DRIVER_VERSION GPU_DRIVER_REQUIRE_MATCHING_NODES \
-  GPU_DRIVER_SYNC_ENABLED GPU_DRIVER_SYNC_USE_SUDO GPU_DRIVER_ALLOW_OS_TAG_ALIAS \
-  GPU_DRIVER_VERSION_SOURCE_TAG_2204 GPU_DRIVER_VERSION_SOURCE_TAG_2404 GPU_NODE_WORKLOAD_LABEL
+  GPU_DRIVER_IMAGE GPU_DRIVER_VERSION GPU_DRIVER_REQUIRE_MATCHING_NODES GPU_NODE_WORKLOAD_LABEL \
+  GPU_DRIVER_TARGET_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY \
+  GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY \
+  GPU_OPERATOR_MIRROR_NFD_REPOSITORY
 do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
@@ -46,17 +51,6 @@ run_with_retry() {
   return 1
 }
 
-validate_driver_tag_mapping() {
-  local source_tag="$1"
-  local target_tag="$2"
-  local source_os_tag="${source_tag##*-}"
-  local target_os_tag="${target_tag##*-}"
-
-  if [[ "${source_os_tag}" != "${target_os_tag}" && "${GPU_DRIVER_ALLOW_OS_TAG_ALIAS}" != "true" ]]; then
-    fail "Refusing to alias driver image ${source_tag} to ${target_tag}. Set GPU_DRIVER_ALLOW_OS_TAG_ALIAS=true to override."
-  fi
-}
-
 ensure_gpu_operator_chart_deps() {
   if [[ -d "${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery" || -f "${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery-chart-0.18.2.tgz" ]]; then
     return
@@ -65,13 +59,6 @@ ensure_gpu_operator_chart_deps() {
   fail "Missing vendored GPU Operator dependency under ${GPU_OPERATOR_CHART_DIR}/charts"
 }
 
-az account set --subscription "${AZURE_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
-if [[ "${GPU_DRIVER_SYNC_ENABLED}" == "true" ]]; then
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
-  validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
-fi
-
-sync_gpu_operator_images
 ensure_gpu_operator_chart_deps
 
 tmp_values_file="$(mktemp)"

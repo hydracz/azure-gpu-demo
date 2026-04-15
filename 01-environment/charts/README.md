@@ -34,12 +34,23 @@ Place `crd-servicemonitors.yaml` in this directory for Prometheus ServiceMonitor
 kubectl get crd servicemonitors.monitoring.coreos.com -o yaml > charts/crd-servicemonitors.yaml
 ```
 
+### 5. cert-manager manifests
+
+This repo vendors the cert-manager installation manifest and the small platform templates needed by the shell and Terraform flows:
+
+- `cert-manager.yaml`
+- `istio-ingressclass.yaml`
+- `letencrypt-signer.yaml`
+
 ## Expected Structure
 
 ```text
 charts/
+├── cert-manager.yaml
 ├── crd-servicemonitors.yaml
 ├── gpu-operator/
 ├── karpenter/
-└── karpenter-crd/
+├── karpenter-crd/
+├── istio-ingressclass.yaml
+└── letencrypt-signer.yaml
 ```

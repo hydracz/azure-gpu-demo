@@ -72,7 +72,7 @@ resource "azurerm_role_assignment" "karpenter_kubelet_identity_operator" {
 }
 
 resource "azurerm_role_assignment" "karpenter_acr_pull" {
-  scope                            = azurerm_container_registry.main.id
+  scope                            = local.acr_id
   role_definition_name             = "AcrPull"
   principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
   skip_service_principal_aad_check = true
@@ -95,7 +95,7 @@ resource "null_resource" "install_karpenter" {
     cluster_id                 = azurerm_kubernetes_cluster.main.id
     cluster_name               = azurerm_kubernetes_cluster.main.name
     resource_group_name        = azurerm_resource_group.main.name
-    acr_name                   = azurerm_container_registry.main.name
+    acr_name                   = local.acr_name
     cluster_endpoint           = local.aks_endpoint
     subscription_id            = var.subscription_id
     location                   = var.location
@@ -137,10 +137,10 @@ resource "null_resource" "install_karpenter" {
     interpreter = ["/bin/bash", "-lc"]
 
     environment = {
+      SHARED_ENV_FILE            = local.shared_env_file
       KUBECONFIG_FILE            = self.triggers.kubeconfig_path
       AZURE_SUBSCRIPTION_ID      = self.triggers.subscription_id
       RESOURCE_GROUP             = self.triggers.resource_group_name
-      ACR_NAME                   = self.triggers.acr_name
       LOCATION                   = self.triggers.location
       CLUSTER_NAME               = self.triggers.cluster_name
       AKS_ENDPOINT               = self.triggers.cluster_endpoint
@@ -152,7 +152,7 @@ resource "null_resource" "install_karpenter" {
       KARPENTER_CRD_CHART_DIR    = self.triggers.karpenter_crd_chart_dir
       KARPENTER_IMAGE_REPOSITORY = self.triggers.karpenter_image_repository
       KARPENTER_IMAGE_TAG        = self.triggers.karpenter_image_tag
-      VNET_SUBNET_ID             = self.triggers.aks_subnet_id
+      EXISTING_VNET_SUBNET_ID    = self.triggers.aks_subnet_id
       AZURE_NODE_RESOURCE_GROUP  = self.triggers.node_resource_group
       KUBELET_IDENTITY_CLIENT_ID = self.triggers.kubelet_identity_client_id
       NODE_IDENTITIES            = self.triggers.node_identities
@@ -193,6 +193,7 @@ resource "null_resource" "install_karpenter" {
   }
 
   depends_on = [
+    null_resource.prepare_shared_assets,
     time_sleep.aks_api_ready,
     null_resource.ama_metrics_config,
     azurerm_federated_identity_credential.karpenter,

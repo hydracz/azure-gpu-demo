@@ -5,10 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
-ENV_NAME="${1:-}"
+INPUT_ARG="${1:-}"
 
-if [[ -z "${ENV_NAME}" ]]; then
-  echo "usage: ./02-apply.sh <env-name>"
+if [[ -z "${INPUT_ARG}" ]]; then
+  echo "usage: ./02-apply.sh <env-name|plan-file>"
   exit 1
 fi
 
@@ -17,11 +17,23 @@ command -v terraform >/dev/null 2>&1 || {
   exit 1
 }
 
-PLAN_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfplan"
+if [[ "${INPUT_ARG}" == *.tfplan ]]; then
+  if [[ "${INPUT_ARG}" = /* ]]; then
+    PLAN_FILE="${INPUT_ARG}"
+  else
+    PLAN_FILE="$(pwd)/${INPUT_ARG}"
+  fi
+else
+  PLAN_FILE="${SCRIPT_DIR}/${INPUT_ARG}.tfplan"
+fi
 
 if [[ ! -f "${PLAN_FILE}" ]]; then
   echo "missing plan file: ${PLAN_FILE}"
-  echo "run ./01-plan.sh ${ENV_NAME} first"
+  if [[ "${INPUT_ARG}" == *.tfplan ]]; then
+    echo "pass an existing .tfplan file path or run ./01-plan.sh <env-name> first"
+  else
+    echo "run ./01-plan.sh ${INPUT_ARG} first"
+  fi
   exit 1
 fi
 

@@ -4,10 +4,10 @@
 
 ## 目录内容
 
-- 14-sync-helm-images.sh: 独立把 Karpenter / GPU Operator 等用户侧 Helm 镜像同步到当前 ACR。
-- 05-create-network.sh: 创建或复用自定义 VNet/Subnet。
-- 06-destroy-network.sh: 删除单独的网络资源组。
 - 10-create-aks.sh: 创建 ACR、监控资源和 AKS 集群，并前置启用 AKS managed Istio 与共享 KEDA Prometheus 认证。
+- 12-deploy-cert-manager.sh: 安装 cert-manager、Istio IngressClass 和 Let's Encrypt staging/prod ClusterIssuer。
+- 13-destroy-cert-manager.sh: 删除 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer。
+- 19-import-grafana-dashboards.sh: 把仓库内置的 Grafana 仪表板导入到当前 Azure Managed Grafana。
 - 11-delete-aks.sh: 删除 AKS。
 - 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool。
 - 16-destroy-karpenter.sh: 卸载 Karpenter。
@@ -28,14 +28,16 @@ cp aks.env.sample aks.env
 ## 使用顺序
 
 ```bash
-./01-environment/shell/05-create-network.sh
 ./01-environment/shell/10-create-aks.sh
-./01-environment/shell/14-sync-helm-images.sh
 ./01-environment/shell/15-deploy-karpenter.sh
 ./01-environment/shell/17-deploy-gpu-operator.sh
 ```
 
-说明：14 这一步不是必须，因为 15/17 现在也会自动把各自依赖的上游镜像同步到 ACR；但在受限网络或需要提前预热镜像时，建议先单独执行一次。
+运行这个 shell 流程之前，先完成仓库顶层的共享准备步骤。
+
+说明：10-create-aks.sh 现在会自动调用 12-deploy-cert-manager.sh，因此正常场景不需要单独执行 12；如果你只想重试证书平台安装，再单独运行 12 即可。
+
+说明：10-create-aks.sh 也会自动调用 19-import-grafana-dashboards.sh，把 Istio workload 看板和当前仓库兼容的 GPU DCGM 看板导入到 Azure Managed Grafana；如果只想重试 dashboard 导入，可单独运行 19。
 
 ## Charts 位置
 
@@ -48,7 +50,13 @@ shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下
 - AKS managed Istio (`asm-1-27`)
 - external ingress gateway
 - internal ingress gateway
+- cert-manager
+- Kubernetes IngressClass `istio`
+- Let's Encrypt `ClusterIssuer`（staging / prod）
+- Azure Managed Grafana dashboard 导入（Istio workload + AKS GPU DCGM）
 - KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 `ClusterTriggerAuthentication`
+
+启用 cert-manager 时，需要在根目录 `aks.env` 里提供 `CERT_MANAGER_ACME_EMAIL`。后续 workload 默认直接使用 `letsencrypt-prod` 签发证书。
 
 ```bash
 cp -r /path/to/karpenter-provider-azure/charts/karpenter-crd 01-environment/charts/
@@ -63,5 +71,4 @@ helm pull nvidia/gpu-operator --version v25.3.4 --untar -d 01-environment/charts
 ```bash
 ./01-environment/shell/99-cleanup.sh
 DELETE_RESOURCE_GROUP=true ./01-environment/shell/99-cleanup.sh
-DELETE_RESOURCE_GROUP=true DELETE_NETWORK_RESOURCE_GROUP=true ./01-environment/shell/99-cleanup.sh
 ```

@@ -20,9 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../../common.sh"
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../scripts/image-sync-lib.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../scripts/gpu-operator-image-sync.sh"
+source "${SCRIPT_DIR}/../../00-prepare/scripts/gpu-operator-image-sync.sh"
 
 load_env
 ensure_tooling
@@ -116,7 +114,11 @@ ensure_gpu_operator_controller() {
   kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
 }
 
-require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_SKU_NAME ACR_NAME
+require_env \
+  AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_SKU_NAME ACR_NAME \
+  GPU_DRIVER_TARGET_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY \
+  GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY \
+  GPU_OPERATOR_MIRROR_NFD_REPOSITORY
 
 if [[ -z "${GPU_DRIVER_NODE_SELECTOR_VALUE:-}" ]]; then
   IFS='_' read -r -a gpu_sku_parts <<<"${GPU_SKU_NAME}"
@@ -133,10 +135,6 @@ if [[ "${GPU_DRIVER_SYNC_ENABLED}" == "true" ]]; then
   validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2204}" "${GPU_DRIVER_VERSION}-ubuntu22.04"
   validate_driver_tag_mapping "${GPU_DRIVER_VERSION_SOURCE_TAG_2404}" "${GPU_DRIVER_VERSION}-ubuntu24.04"
 fi
-
-sync_gpu_operator_images
-
-write_generated_env GPU_DRIVER_TARGET_REPOSITORY "${GPU_DRIVER_TARGET_REPOSITORY}"
 
 az aks get-credentials \
   --resource-group "${RESOURCE_GROUP}" \

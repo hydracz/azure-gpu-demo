@@ -23,6 +23,8 @@ azure-gpu-demo/
 ## 设计原则
 
 - 01 只负责环境搭建，Terraform 与 shell 两套入口并存。
+- 01 环境阶段会统一安装 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer，后续 workload 不再各自生成自签名证书。
+- 01 环境阶段也会统一把仓库内置的 Grafana dashboards 导入 Azure Managed Grafana，保证新环境创建后即可查看 Istio 与 GPU 监控面板。
 - 02 预留独立存储能力，避免后续 Blob CSI 与集群创建脚本耦合。
 - 03 负责 GPU probe 测试应用的完整验证闭环，包括镜像构建、发布和清理。
 - 04 负责更接近真实流量入口的工作负载发布，例如外部镜像同步、Istio 网关暴露和 KEDA 自动扩缩容。

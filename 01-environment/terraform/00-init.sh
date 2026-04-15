@@ -17,10 +17,7 @@ command -v terraform >/dev/null 2>&1 || {
 
 BACKEND_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfbackend"
 
-if [[ ! -f "${BACKEND_FILE}" ]]; then
-  echo "missing backend file: ${BACKEND_FILE}"
-  exit 1
-fi
+bash "${SCRIPT_DIR}/scripts/render-tfbackend-from-env.sh" "${ENV_NAME}" "${BACKEND_FILE}"
 
 cd "${SCRIPT_DIR}"
 terraform init -backend-config="${BACKEND_FILE}"

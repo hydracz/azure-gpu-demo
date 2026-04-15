@@ -3,17 +3,20 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/image-sync-lib.sh"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../../scripts/kiali-image-sync.sh"
+
+if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${SHARED_ENV_FILE}"
+  set +a
+fi
 
 need_cmd az
 need_cmd helm
 need_cmd kubectl
 
 for required_var in \
-  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME ACR_NAME \
+  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME \
   ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED \
   ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
   ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_EXTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
@@ -25,12 +28,17 @@ do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
 
+if [[ "${ISTIO_KIALI_ENABLED}" == "true" ]]; then
+  for required_var in \
+    ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY ISTIO_KIALI_TARGET_IMAGE_NAME \
+    ISTIO_KIALI_PROXY_TARGET_IMAGE ISTIO_KIALI_IMAGE_TAG
+  do
+    [[ -n "${!required_var:-}" ]] || fail "${required_var} is required when Kiali is enabled"
+  done
+fi
+
 refresh_aks_kubeconfig
 wait_for_cluster_api
-
-if [[ "${ISTIO_KIALI_ENABLED}" == "true" ]]; then
-  sync_kiali_images
-fi
 
 validate_replica_pair() {
   local gateway_name="$1"

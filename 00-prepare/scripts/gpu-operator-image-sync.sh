@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 GPU_OPERATOR_IMAGE_SYNC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GPU_OPERATOR_IMAGE_SYNC_CHART_DIR="${GPU_OPERATOR_IMAGE_SYNC_DIR}/../charts/gpu-operator"
+GPU_OPERATOR_IMAGE_SYNC_CHART_DIR="${GPU_OPERATOR_IMAGE_SYNC_DIR}/../../01-environment/charts/gpu-operator"
 
 gpu_operator_chart_app_version() {
   awk '/^appVersion:/ {print $2; exit}' "${GPU_OPERATOR_IMAGE_SYNC_CHART_DIR}/Chart.yaml"
@@ -77,6 +77,10 @@ sync_gpu_operator_images() {
   export GPU_OPERATOR_MIRROR_NFD_REPOSITORY
 
   image_sync_write_env_if_available GPU_DRIVER_TARGET_REPOSITORY "${GPU_DRIVER_TARGET_REPOSITORY}"
+  image_sync_write_env_if_available GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY "${GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY}"
+  image_sync_write_env_if_available GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY "${GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY}"
+  image_sync_write_env_if_available GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY "${GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY}"
+  image_sync_write_env_if_available GPU_OPERATOR_MIRROR_NFD_REPOSITORY "${GPU_OPERATOR_MIRROR_NFD_REPOSITORY}"
 
   log_gpu_operator_images_to_sync "${gpu_operator_version}" "${nfd_version}"
 

@@ -32,6 +32,11 @@ sync_kiali_images() {
   export ISTIO_KIALI_PROXY_TARGET_IMAGE
   export ISTIO_KIALI_IMAGE_TAG
 
+  image_sync_write_env_if_available ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY "${ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY}"
+  image_sync_write_env_if_available ISTIO_KIALI_TARGET_IMAGE_NAME "${ISTIO_KIALI_TARGET_IMAGE_NAME}"
+  image_sync_write_env_if_available ISTIO_KIALI_PROXY_TARGET_IMAGE "${ISTIO_KIALI_PROXY_TARGET_IMAGE}"
+  image_sync_write_env_if_available ISTIO_KIALI_IMAGE_TAG "${ISTIO_KIALI_IMAGE_TAG}"
+
   log "Kiali image mirror plan:"
   log "  operator : quay.io/kiali/kiali-operator:${kiali_tag}"
   log "  server   : quay.io/kiali/kiali:${kiali_tag}"

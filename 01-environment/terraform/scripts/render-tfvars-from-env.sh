@@ -22,6 +22,21 @@ fi
 load_env
 ensure_parent_dir "${OUTPUT_FILE}"
 
+if [[ -z "${GRAFANA_ADMIN_PRINCIPAL_IDS:-}" ]]; then
+    export GRAFANA_ADMIN_PRINCIPAL_IDS="$(resolve_current_azure_principal_id)"
+fi
+
+existing_subnet_id="${EXISTING_VNET_SUBNET_ID:-}"
+
+if [[ -z "${existing_subnet_id}" ]]; then
+    fail "EXISTING_VNET_SUBNET_ID is required. Run ./00-prepare/00-prepare.sh first so 01-environment consumes a prepared subnet instead of creating one."
+fi
+
+need_cmd az
+if ! az resource show --ids "${existing_subnet_id}" --query id -o tsv --only-show-errors >/dev/null 2>&1; then
+    fail "EXISTING_VNET_SUBNET_ID does not exist: ${existing_subnet_id}. Run ./00-prepare/00-prepare.sh first or point it to an existing subnet."
+fi
+
 python3 - "${OUTPUT_FILE}" <<'PY'
 import json
 import os
@@ -67,7 +82,14 @@ def csv_list(name: str) -> list[str]:
 
 
 output_path = Path(sys.argv[1])
-existing_subnet_id = get("VNET_SUBNET_ID")
+existing_subnet_id = get("EXISTING_VNET_SUBNET_ID")
+existing_acr_id = get("EXISTING_ACR_ID") or get("ACR_ID")
+cert_manager_enabled = as_bool("CERT_MANAGER_ENABLED", True)
+cert_manager_acme_email = get("CERT_MANAGER_ACME_EMAIL")
+
+if cert_manager_enabled and cert_manager_acme_email == "":
+    raise SystemExit("CERT_MANAGER_ACME_EMAIL is required when CERT_MANAGER_ENABLED is true")
+
 tags = {
     "environment": get("TAGS_ENVIRONMENT", "dev"),
     "owner": get("TAGS_OWNER", "platform"),
@@ -79,12 +101,14 @@ payload = {
     "resource_group_name": require("RESOURCE_GROUP"),
     "cluster_name": require("CLUSTER_NAME"),
     "aks_identity_name": get("AKS_IDENTITY_NAME", "id-aks-control-plane"),
-    "acr_name": require("ACR_NAME"),
+    "acr_name": get("ACR_NAME"),
+    "existing_acr_id": existing_acr_id,
     "monitor_workspace_name": require("MONITOR_WORKSPACE_NAME"),
     "monitor_workspace_public_network_access_enabled": as_bool("MONITOR_WORKSPACE_PUBLIC_NETWORK_ACCESS_ENABLED", True),
     "log_analytics_workspace_name": require("LOG_ANALYTICS_WORKSPACE_NAME"),
     "grafana_name": require("GRAFANA_NAME"),
-    "grafana_major_version": as_int("GRAFANA_MAJOR_VERSION", 11),
+    "grafana_major_version": as_int("GRAFANA_MAJOR_VERSION", 12),
+    "grafana_dashboard_import_enabled": as_bool("GRAFANA_DASHBOARD_IMPORT_ENABLED", True),
     "diagnostic_setting_name": get("AKS_DIAGNOSTIC_SETTING_NAME", "aks-all-logs"),
     "existing_subnet_id": existing_subnet_id,
     "system_pool_name": get("SYSTEM_POOL_NAME", "sysd4"),
@@ -98,6 +122,13 @@ payload = {
     "istio_revisions": csv_list("ISTIO_REVISIONS_CSV") or ["asm-1-27"],
     "istio_internal_ingress_gateway_enabled": as_bool("ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED", True),
     "istio_external_ingress_gateway_enabled": as_bool("ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED", True),
+    "cert_manager_enabled": cert_manager_enabled,
+    "cert_manager_acme_email": cert_manager_acme_email,
+    "cert_manager_ingress_class_name": get("CERT_MANAGER_INGRESS_CLASS_NAME", "istio"),
+    "cert_manager_staging_issuer_name": get("CERT_MANAGER_STAGING_ISSUER_NAME", "letsencrypt-staging"),
+    "cert_manager_prod_issuer_name": get("CERT_MANAGER_PROD_ISSUER_NAME", "letsencrypt-prod"),
+    "cert_manager_ingress_gateway_namespace": get("CERT_MANAGER_INGRESS_GATEWAY_NAMESPACE", "aks-istio-ingress"),
+    "cert_manager_ingress_gateway_service_name": get("CERT_MANAGER_INGRESS_GATEWAY_SERVICE_NAME", "aks-istio-ingressgateway-external"),
     "istio_internal_ingress_gateway_min_replicas": as_int("ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS", 2),
     "istio_internal_ingress_gateway_max_replicas": as_int("ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS", 5),
     "istio_external_ingress_gateway_min_replicas": as_int("ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS", 2),
@@ -153,12 +184,8 @@ payload = {
     "tags": tags,
 }
 
-if not existing_subnet_id:
-    payload["network_resource_group_name"] = require("NETWORK_RESOURCE_GROUP")
-    payload["vnet_name"] = require("VNET_NAME")
-    payload["vnet_address_space"] = [get("VNET_ADDRESS_PREFIX", "10.240.0.0/16")]
-    payload["aks_subnet_name"] = get("AKS_SUBNET_NAME", "snet-aks-underlay")
-    payload["aks_subnet_address_prefixes"] = [get("AKS_SUBNET_ADDRESS_PREFIX", "10.240.0.0/20")]
+if not payload["existing_acr_id"] and not payload["acr_name"]:
+    raise SystemExit("ACR_NAME is required when EXISTING_ACR_ID is empty")
 
 output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
