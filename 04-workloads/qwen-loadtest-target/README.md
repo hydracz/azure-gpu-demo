@@ -7,6 +7,7 @@
 - 41-deploy.sh: 创建 Deployment、Service、annotated `Gateway`、`HTTPRoute`、`DestinationRule` 和 KEDA ScaledObject，并给业务 namespace 打 AKS managed Istio revision 标签。
 - 42-smoke-test.sh: 通过 Gateway API 自动生成的 gateway service 发起并发 HTTPS 请求，并输出当前 Deployment / HPA / ScaledObject / Certificate 状态。默认通过集群内 gateway service 的 `ClusterIP` 做 `/predict` 请求，避免本机到公网 LB 的网络抖动影响验证；临时 curl pod 会显式关闭 sidecar 注入。
 - 43-destroy.sh: 删除本步骤创建的工作负载与网关资源，并清理 namespace 上的 Istio revision 标签。
+- 44-stress-test.sh: 在集群内启动临时 curl pod，对 `/predict` 或自定义路径持续发压，并按轮输出 `200`、`429`、`5xx` 摘要，适合直接观察 KEDA 与 Karpenter 的扩缩容效果。
 
 ## 依赖
 
@@ -23,6 +24,7 @@ cp aks.env.sample aks.env
 ./00-prepare/10-sync-qwen-model.sh
 ./04-workloads/qwen-loadtest-target/41-deploy.sh
 ./04-workloads/qwen-loadtest-target/42-smoke-test.sh
+./04-workloads/qwen-loadtest-target/44-stress-test.sh
 ./04-workloads/qwen-loadtest-target/43-destroy.sh
 ```
 
@@ -40,6 +42,43 @@ cp aks.env.sample aks.env
 默认 `QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY=true`，会通过当前 workload 所属 `Gateway` 自动生成的 service `ClusterIP` 加真实 `Host` 头走完整 gateway 路径。这仍然会经过 Gateway API 管理的 ingress envoy，因此适合在本机无法直接访问公网 LB 时做功能验证；并且 smoke test 不再跳过 TLS 校验，证书链异常会直接暴露出来。
 
 默认 smoke test 并发是 `2`。在单副本最小配置下，入口可能出现一条 `200` 加一条 `503 overflow` 的结果，这表示当前 Gateway API ingress envoy 的瞬时并发保护先触发了，而不是应用容器本身异常；如果要确认基线可用性，可临时设置 `QWEN_LOADTEST_TEST_CONCURRENCY=1`。
+
+`44-stress-test.sh` 默认跑一轮 `30` 分钟长压测，关键默认值如下：
+
+- `QWEN_LOADTEST_STRESS_DURATION_SECONDS=1800`
+- `QWEN_LOADTEST_STRESS_CONCURRENCY=8`
+- `QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT=1800`
+- `QWEN_LOADTEST_STRESS_STEPS=20`
+- `QWEN_LOADTEST_STRESS_CFG=2.5`
+- `QWEN_LOADTEST_TEST_MODE=predict`
+- `QWEN_LOADTEST_TEST_PATH=/predict`
+- `QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY=true`
+
+常见用法：
+
+```bash
+# 默认 30 分钟 /predict 长压
+./04-workloads/qwen-loadtest-target/44-stress-test.sh
+
+# 压 10 分钟，并发 4
+QWEN_LOADTEST_STRESS_DURATION_SECONDS=600 \
+QWEN_LOADTEST_STRESS_CONCURRENCY=4 \
+./04-workloads/qwen-loadtest-target/44-stress-test.sh
+
+# 用 /healthz 做轻量链路验证
+QWEN_LOADTEST_TEST_MODE=get \
+QWEN_LOADTEST_TEST_PATH=/healthz \
+QWEN_LOADTEST_STRESS_DURATION_SECONDS=60 \
+./04-workloads/qwen-loadtest-target/44-stress-test.sh
+```
+
+脚本会在每一轮输出类似以下摘要，方便直接看扩容过程中的行为：
+
+```text
+ts=2026-04-16T11:24:56+0800 round=39 ok=6 busy=0 fail5xx=2 other=0 slowest=29.754s
+```
+
+压测结束后脚本还会自动输出当前 `Deployment`、`Pod`、`Service`、`HPA` 和 `ScaledObject` 状态，便于对照 KEDA / Karpenter 是否已经把副本补齐。
 
 KEDA 使用的缩放查询会写入根目录 `.generated.env` 中的 `QWEN_LOADTEST_KEDA_QUERY`，并通过环境阶段预创建的 `ClusterTriggerAuthentication` 直接访问 Azure Managed Prometheus。当前默认按以下指标缩放：
 
