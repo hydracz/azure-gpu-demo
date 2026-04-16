@@ -28,6 +28,7 @@ locals {
   cert_manager_issuer_template = "${path.module}/../charts/letencrypt-signer.yaml"
   grafana_dashboard_dir        = "${path.module}/../grafana/dashboards"
   service_monitor_crd          = "${path.module}/../charts/crd-servicemonitors.yaml"
+  pod_monitor_crd              = "${path.module}/../charts/crd-podmonitors.yaml"
   ama_metrics_config           = "${path.module}/../charts/ama-metrics-settings-configmap.yaml"
 
   karpenter_chart_hash = sha256(join("", [
@@ -45,6 +46,7 @@ locals {
     for file in sort(fileset(local.grafana_dashboard_dir, "*.json")) : filesha256("${local.grafana_dashboard_dir}/${file}")
   ]))
   service_monitor_crd_hash = filesha256(local.service_monitor_crd)
+  pod_monitor_crd_hash     = filesha256(local.pod_monitor_crd)
   ama_metrics_config_hash  = filesha256(local.ama_metrics_config)
 
   common_tags = merge(

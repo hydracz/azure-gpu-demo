@@ -663,6 +663,11 @@ if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-servicemonitors.yam
   warn "Failed to apply ServiceMonitor CRD; continue and run manually if needed"
 fi
 
+log "Installing PodMonitor CRD (prometheus-operator)"
+if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-podmonitors.yaml" --validate=false >/dev/null 2>&1; then
+  warn "Failed to apply PodMonitor CRD; continue and run manually if needed"
+fi
+
 log "Applying AMA metrics settings ConfigMap"
 kubectl apply -f "${ROOT_DIR}/01-environment/charts/ama-metrics-settings-configmap.yaml" >/dev/null
 

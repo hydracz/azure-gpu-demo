@@ -44,6 +44,8 @@ resource "null_resource" "service_monitor_crd" {
     kubeconfig_path     = local.kubeconfig_path
     crd_file            = local.service_monitor_crd
     crd_file_hash       = local.service_monitor_crd_hash
+    pod_crd_file        = local.pod_monitor_crd
+    pod_crd_file_hash   = local.pod_monitor_crd_hash
     install_script_sha  = filesha256("${path.module}/scripts/apply-servicemonitor-crd.sh")
     helper_script_sha   = filesha256("${path.module}/scripts/common.sh")
   }
@@ -58,6 +60,7 @@ resource "null_resource" "service_monitor_crd" {
       RESOURCE_GROUP           = self.triggers.resource_group_name
       CLUSTER_NAME             = self.triggers.cluster_name
       SERVICE_MONITOR_CRD_FILE = self.triggers.crd_file
+      POD_MONITOR_CRD_FILE     = self.triggers.pod_crd_file
     }
   }
 

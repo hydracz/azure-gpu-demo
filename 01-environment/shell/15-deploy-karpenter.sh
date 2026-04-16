@@ -374,6 +374,10 @@ helm upgrade --install karpenter \
 log "Waiting for Karpenter controller to be ready"
 kubectl -n "${KARPENTER_NAMESPACE}" rollout status deploy/karpenter --timeout=5m
 
+log "Applying Azure Monitor ServiceMonitor mirror for Karpenter"
+KARPENTER_NAMESPACE="${KARPENTER_NAMESPACE}" \
+  bash "${ROOT_DIR}/01-environment/scripts/apply-azmonitor-servicemonitors.sh"
+
 # ── 5. 部署 AKSNodeClass + NodePool (GPU 场景) ───────────────────
 log "Applying AKSNodeClass and NodePool manifests for GPU (${GPU_SKU_NAME})"
 

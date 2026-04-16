@@ -97,6 +97,10 @@ ensure_gpu_operator_controller() {
 
   log "Waiting for GPU Operator controller to be ready"
   kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
+
+  log "Applying Azure Monitor ServiceMonitor mirrors for GPU Operator"
+  GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE}" \
+    bash "${ROOT_DIR}/01-environment/scripts/apply-azmonitor-servicemonitors.sh"
 }
 
 require_env \

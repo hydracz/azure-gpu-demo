@@ -15,6 +15,8 @@
 - 18-destroy-gpu-operator.sh: 卸载 GPU Operator。
 - 99-cleanup.sh: 一键回收环境资源。
 
+自定义 Prometheus 抓取对象会额外镜像到 `azmonitoring.coreos.com/v1` 这组 Azure Monitor 自带 CRD；只有 `monitoring.coreos.com/v1` 的 `ServiceMonitor` 或 `PodMonitor` 时，Azure Managed Prometheus 不一定会发现这些目标。
+
 ## 前置条件
 
 - 已安装并登录 Azure CLI。

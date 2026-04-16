@@ -80,6 +80,7 @@ cp aks.env.sample aks.env
 - 默认会同时部署 AKS 托管 Istio internal / external ingress gateway。两组 gateway 的 HPA 副本范围分别由 istio_internal_ingress_gateway_min_replicas / max_replicas 和 istio_external_ingress_gateway_min_replicas / max_replicas 控制；如果想固定副本数，直接把对应 min 和 max 设成同一个值。
 - AKS 托管 Istio 的 Gateway 资源选择器应分别使用 istio: aks-istio-ingressgateway-internal 和 istio: aks-istio-ingressgateway-external。
 - 默认会部署 anonymous 模式的 Kiali，并通过带 workload identity 的 Azure Monitor auth proxy 访问 Managed Prometheus，无需在集群内保存 Entra client secret。
+- 针对 Karpenter、GPU Operator、DCGM exporter 这类自定义指标，Terraform 安装脚本会额外下发 `azmonitoring.coreos.com/v1` 的 `ServiceMonitor` / `PodMonitor` 镜像对象，避免只有 `monitoring.coreos.com/v1` 资源时 Azure Managed Prometheus 不采集。
 - Terraform apply 也会自动创建 KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 cluster-scoped ClusterTriggerAuthentication，因此后续 qwen workload 不再依赖 shell 流程单独补 bootstrap。
 - Kiali 保持内部 `ClusterIP`，不额外暴露入口；需要访问时，使用 `kubectl port-forward -n aks-istio-system svc/kiali 20001:20001`，然后打开 `http://127.0.0.1:20001`。
 - ASM 启用后，业务命名空间需要显式打 istio.io/rev=asm-X-Y 标签；不能使用 istio-injection=enabled。

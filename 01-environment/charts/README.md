@@ -26,12 +26,13 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
 helm pull nvidia/gpu-operator --version v25.3.4 --untar -d charts/
 ```
 
-### 4. ServiceMonitor CRD (optional)
+### 4. ServiceMonitor / PodMonitor CRDs (optional)
 
-Place `crd-servicemonitors.yaml` in this directory for Prometheus ServiceMonitor support.
+Place `crd-servicemonitors.yaml` and `crd-podmonitors.yaml` in this directory for Prometheus Operator `ServiceMonitor` / `PodMonitor` compatibility.
 
 ```bash
 kubectl get crd servicemonitors.monitoring.coreos.com -o yaml > charts/crd-servicemonitors.yaml
+kubectl get crd podmonitors.monitoring.coreos.com -o yaml > charts/crd-podmonitors.yaml
 ```
 
 ### 5. cert-manager manifests
@@ -46,6 +47,7 @@ This repo vendors the cert-manager installation manifest and the small platform 
 ```text
 charts/
 ├── cert-manager.yaml
+├── crd-podmonitors.yaml
 ├── crd-servicemonitors.yaml
 ├── gpu-operator/
 ├── karpenter/

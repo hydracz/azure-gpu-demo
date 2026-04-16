@@ -303,7 +303,7 @@ variable "prometheus_rule_group_interval" {
 }
 
 variable "service_monitor_crd_enabled" {
-  description = "Whether to install the ServiceMonitor CRD before Helm workloads"
+  description = "Whether to install the ServiceMonitor and PodMonitor CRDs before Helm workloads"
   type        = bool
   default     = true
 }

@@ -103,6 +103,11 @@ helm upgrade --install gpu-operator \
 
 kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
 
+log "Applying Azure Monitor ServiceMonitor mirrors for GPU Operator"
+KUBECONFIG_FILE="${KUBECONFIG_FILE}" \
+GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE}" \
+  bash "${SCRIPT_DIR}/../../scripts/apply-azmonitor-servicemonitors.sh"
+
 expected_selector="${GPU_DRIVER_NODE_SELECTOR_KEY}=${GPU_DRIVER_NODE_SELECTOR_VALUE}"
 matching_gpu_nodes="$(kubectl get nodes -l "${expected_selector}" -o name 2>/dev/null || true)"
 if [[ -z "${matching_gpu_nodes}" && "${GPU_DRIVER_REQUIRE_MATCHING_NODES}" == "true" ]]; then
