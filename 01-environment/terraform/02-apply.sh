@@ -38,5 +38,5 @@ if [[ ! -f "${PLAN_FILE}" ]]; then
 fi
 
 cd "${SCRIPT_DIR}"
-terraform apply "${PLAN_FILE}"
+terraform apply -parallelism="${TF_APPLY_PARALLELISM:-1}" "${PLAN_FILE}"
 bash "${SCRIPT_DIR}/scripts/export-generated-env.sh"

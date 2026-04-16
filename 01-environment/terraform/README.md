@@ -15,9 +15,9 @@
 - Managed Grafana built-in dashboard import
 - AKS 集群
 - AKS Blob CSI Driver 默认开启
+- AKS managed Gateway API
 - AKS 托管 Istio / Azure Service Mesh add-on（可选）
 - cert-manager
-- Istio `IngressClass`
 - Let's Encrypt staging / prod `ClusterIssuer`
 - AKS 集群创建后自动应用 AMA metrics scrape ConfigMap
 - AKS 托管 Istio internal / external ingress gateway HPA 配置
@@ -76,7 +76,7 @@ cp aks.env.sample aks.env
 - AKS 监控不只开启 monitor_metrics，还会创建 Managed Prometheus 的 DCR、DCRA，以及基础 recording rules。
 - AKS 默认开启 Azure Blob CSI Driver，对应 az aks create/update 的 --enable-blob-driver；如果走统一的根目录 aks.env，可把 AKS_ENABLE_BLOB_DRIVER 设为 false；如果手写 tfvar，则使用 Terraform 变量 blob_driver_enabled。
 - AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-27；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
-- 默认会安装 cert-manager，并创建供 HTTP-01 使用的 `IngressClass` `istio` 以及 `letsencrypt-staging` / `letsencrypt-prod` 两个 `ClusterIssuer`；使用前需要在根目录 `aks.env` 中设置 `CERT_MANAGER_ACME_EMAIL`。
+- 默认会启用 AKS managed Gateway API，并安装 cert-manager；创建的 `letsencrypt-staging` / `letsencrypt-prod` 两个 `ClusterIssuer` 使用 `gatewayHTTPRoute` solver，后续可以直接配合 annotated `Gateway` 自动签发证书。使用前需要在根目录 `aks.env` 中设置 `CERT_MANAGER_ACME_EMAIL`。
 - 默认会同时部署 AKS 托管 Istio internal / external ingress gateway。两组 gateway 的 HPA 副本范围分别由 istio_internal_ingress_gateway_min_replicas / max_replicas 和 istio_external_ingress_gateway_min_replicas / max_replicas 控制；如果想固定副本数，直接把对应 min 和 max 设成同一个值。
 - AKS 托管 Istio 的 Gateway 资源选择器应分别使用 istio: aks-istio-ingressgateway-internal 和 istio: aks-istio-ingressgateway-external。
 - 默认会部署 anonymous 模式的 Kiali，并通过带 workload identity 的 Azure Monitor auth proxy 访问 Managed Prometheus，无需在集群内保存 Entra client secret。

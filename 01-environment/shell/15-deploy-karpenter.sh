@@ -200,7 +200,7 @@ controller:
       value: "${kubelet_bootstrap_token}"
     - name: SSH_PUBLIC_KEY
       value: "${ssh_public_key}"
-    - name: EXISTING_VNET_SUBNET_ID
+    - name: VNET_SUBNET_ID
       value: "${vnet_subnet_id}"
     - name: AZURE_NODE_RESOURCE_GROUP
       value: "${NODE_RESOURCE_GROUP}"

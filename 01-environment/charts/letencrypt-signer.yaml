@@ -11,8 +11,7 @@ spec:
       name: __CERT_MANAGER_STAGING_ISSUER_NAME__
     solvers:
       - http01:
-          ingress:
-            ingressClassName: __CERT_MANAGER_INGRESS_CLASS_NAME__
+          gatewayHTTPRoute: {}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -26,5 +25,4 @@ spec:
       name: __CERT_MANAGER_PROD_ISSUER_NAME__
     solvers:
       - http01:
-          ingress:
-            ingressClassName: __CERT_MANAGER_INGRESS_CLASS_NAME__
+          gatewayHTTPRoute: {}

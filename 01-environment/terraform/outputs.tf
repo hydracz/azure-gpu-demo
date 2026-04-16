@@ -42,12 +42,12 @@ output "service_mesh_revisions" {
   value = try(azurerm_kubernetes_cluster.main.service_mesh_profile[0].revisions, [])
 }
 
-output "monitor_workspace_query_endpoint" {
-  value = azurerm_monitor_workspace.main.query_endpoint
+output "managed_gateway_api_enabled" {
+  value = var.managed_gateway_api_enabled
 }
 
-output "cert_manager_ingress_class_name" {
-  value = var.cert_manager_enabled ? var.cert_manager_ingress_class_name : null
+output "monitor_workspace_query_endpoint" {
+  value = azurerm_monitor_workspace.main.query_endpoint
 }
 
 output "cert_manager_staging_issuer_name" {
@@ -104,6 +104,10 @@ output "log_analytics_workspace_id" {
 
 output "grafana_id" {
   value = azurerm_dashboard_grafana.main.id
+}
+
+output "grafana_name" {
+  value = azurerm_dashboard_grafana.main.name
 }
 
 output "kubeconfig_path" {

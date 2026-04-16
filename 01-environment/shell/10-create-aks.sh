@@ -21,6 +21,7 @@ ensure_tooling
 : "${AKS_CREATE_RECOVERY_CHECKS:=12}"
 : "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS:=10}"
 : "${AKS_ENABLE_BLOB_DRIVER:=true}"
+: "${AKS_MANAGED_GATEWAY_API_ENABLED:=true}"
 : "${ISTIO_SERVICE_MESH_ENABLED:=true}"
 : "${ISTIO_REVISIONS_CSV:=${SERVICE_MESH_REVISIONS_CSV:-asm-1-27}}"
 : "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED:=true}"
@@ -37,6 +38,7 @@ ensure_tooling
 [[ "${AKS_CREATE_RECOVERY_CHECKS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_CHECKS must be an integer, got: ${AKS_CREATE_RECOVERY_CHECKS}"
 [[ "${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}" =~ ^[0-9]+$ ]] || fail "AKS_CREATE_RECOVERY_INTERVAL_SECONDS must be an integer, got: ${AKS_CREATE_RECOVERY_INTERVAL_SECONDS}"
 [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" || "${AKS_ENABLE_BLOB_DRIVER}" == "false" ]] || fail "AKS_ENABLE_BLOB_DRIVER must be true or false, got: ${AKS_ENABLE_BLOB_DRIVER}"
+[[ "${AKS_MANAGED_GATEWAY_API_ENABLED}" == "true" || "${AKS_MANAGED_GATEWAY_API_ENABLED}" == "false" ]] || fail "AKS_MANAGED_GATEWAY_API_ENABLED must be true or false, got: ${AKS_MANAGED_GATEWAY_API_ENABLED}"
 [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" || "${ISTIO_SERVICE_MESH_ENABLED}" == "false" ]] || fail "ISTIO_SERVICE_MESH_ENABLED must be true or false, got: ${ISTIO_SERVICE_MESH_ENABLED}"
 [[ "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}"
 [[ "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" || "${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}" == "false" ]] || fail "ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED must be true or false, got: ${ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED}"
@@ -510,10 +512,15 @@ fi
 create_aks_cluster() {
   local create_output cluster_state attempt
   local -a blob_driver_args=()
+  local -a gateway_api_args=()
   local -a mesh_args=()
 
   if [[ "${AKS_ENABLE_BLOB_DRIVER}" == "true" ]]; then
     blob_driver_args+=(--enable-blob-driver)
+  fi
+
+  if [[ "${AKS_MANAGED_GATEWAY_API_ENABLED}" == "true" ]]; then
+    gateway_api_args+=(--enable-gateway-api)
   fi
 
   if [[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]]; then
@@ -540,6 +547,7 @@ create_aks_cluster() {
     --enable-azure-monitor-metrics \
     --azure-monitor-workspace-resource-id "${monitor_workspace_id}" \
     --grafana-resource-id "${grafana_id}" \
+    "${gateway_api_args[@]}" \
     "${mesh_args[@]}" \
     "${blob_driver_args[@]}" \
     --generate-ssh-keys \
@@ -639,6 +647,17 @@ az monitor diagnostic-settings create \
 log "Fetching kubeconfig"
 ensure_aks_kubeconfig
 
+if [[ "${AKS_MANAGED_GATEWAY_API_ENABLED}" == "true" ]]; then
+  log "Ensuring AKS managed Gateway API"
+  KUBECONFIG_FILE="$(resolve_aks_kubeconfig_file)" \
+  AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}" \
+  RESOURCE_GROUP="${RESOURCE_GROUP}" \
+  CLUSTER_NAME="${CLUSTER_NAME}" \
+  AKS_MANAGED_GATEWAY_API_ENABLED="${AKS_MANAGED_GATEWAY_API_ENABLED}" \
+  ISTIO_SERVICE_MESH_ENABLED="${ISTIO_SERVICE_MESH_ENABLED}" \
+    bash "${ROOT_DIR}/01-environment/scripts/ensure-managed-gateway-api.sh"
+fi
+
 log "Installing ServiceMonitor CRD (prometheus-operator)"
 if ! kubectl apply -f "${ROOT_DIR}/01-environment/charts/crd-servicemonitors.yaml" --validate=false >/dev/null 2>&1; then
   warn "Failed to apply ServiceMonitor CRD; continue and run manually if needed"
@@ -685,6 +704,7 @@ write_generated_env NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env AZURE_NODE_RESOURCE_GROUP "${node_resource_group}"
 write_generated_env AKS_SUBNET_ID "${EXISTING_VNET_SUBNET_ID}"
 write_generated_env EXISTING_VNET_SUBNET_ID "${EXISTING_VNET_SUBNET_ID}"
+write_generated_env AKS_MANAGED_GATEWAY_API_ENABLED "${AKS_MANAGED_GATEWAY_API_ENABLED}"
 write_generated_env SERVICE_MESH_MODE "$([[ "${ISTIO_SERVICE_MESH_ENABLED}" == "true" ]] && printf '%s' Istio || printf '%s' Disabled)"
 write_generated_env ISTIO_REVISIONS_CSV "${service_mesh_revisions_csv}"
 write_generated_env SERVICE_MESH_REVISIONS_CSV "${service_mesh_revisions_csv}"
@@ -692,7 +712,7 @@ write_generated_env MONITOR_WORKSPACE_ID "${monitor_workspace_id}"
 write_generated_env MONITOR_WORKSPACE_QUERY_ENDPOINT "${monitor_workspace_query_endpoint}"
 write_generated_env LOG_ANALYTICS_WORKSPACE_ID "${log_analytics_workspace_id}"
 write_generated_env GRAFANA_ID "${grafana_id}"
-write_generated_env CERT_MANAGER_INGRESS_CLASS_NAME "${CERT_MANAGER_INGRESS_CLASS_NAME}"
+write_generated_env GRAFANA_NAME "${GRAFANA_NAME}"
 write_generated_env CERT_MANAGER_STAGING_ISSUER_NAME "${CERT_MANAGER_STAGING_ISSUER_NAME}"
 write_generated_env CERT_MANAGER_PROD_ISSUER_NAME "${CERT_MANAGER_PROD_ISSUER_NAME}"
 write_generated_env KUBECTL_CREDENTIALS_COMMAND "az aks get-credentials --resource-group ${RESOURCE_GROUP} --name ${CLUSTER_NAME} --overwrite-existing"

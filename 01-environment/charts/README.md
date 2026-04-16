@@ -39,7 +39,6 @@ kubectl get crd servicemonitors.monitoring.coreos.com -o yaml > charts/crd-servi
 This repo vendors the cert-manager installation manifest and the small platform templates needed by the shell and Terraform flows:
 
 - `cert-manager.yaml`
-- `istio-ingressclass.yaml`
 - `letencrypt-signer.yaml`
 
 ## Expected Structure
@@ -51,6 +50,5 @@ charts/
 ├── gpu-operator/
 ├── karpenter/
 ├── karpenter-crd/
-├── istio-ingressclass.yaml
 └── letencrypt-signer.yaml
 ```

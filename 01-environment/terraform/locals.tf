@@ -21,15 +21,14 @@ locals {
   gpu_driver_version_source_tag_2404        = trimspace(var.gpu_driver_version_source_tag_2404) != "" ? var.gpu_driver_version_source_tag_2404 : "${var.gpu_driver_version}-ubuntu24.04"
   keda_prometheus_federated_credential_name = trimspace(var.keda_prometheus_federated_credential_name) != "" ? var.keda_prometheus_federated_credential_name : "${var.keda_prometheus_identity_name}-keda-operator"
 
-  karpenter_chart_dir                 = "${path.module}/../charts/karpenter"
-  karpenter_crd_chart_dir             = "${path.module}/../charts/karpenter-crd"
-  gpu_operator_chart_dir              = "${path.module}/../charts/gpu-operator"
-  cert_manager_manifest               = "${path.module}/../charts/cert-manager.yaml"
-  cert_manager_ingress_class_template = "${path.module}/../charts/istio-ingressclass.yaml"
-  cert_manager_issuer_template        = "${path.module}/../charts/letencrypt-signer.yaml"
-  grafana_dashboard_dir               = "${path.module}/../grafana/dashboards"
-  service_monitor_crd                 = "${path.module}/../charts/crd-servicemonitors.yaml"
-  ama_metrics_config                  = "${path.module}/../charts/ama-metrics-settings-configmap.yaml"
+  karpenter_chart_dir          = "${path.module}/../charts/karpenter"
+  karpenter_crd_chart_dir      = "${path.module}/../charts/karpenter-crd"
+  gpu_operator_chart_dir       = "${path.module}/../charts/gpu-operator"
+  cert_manager_manifest        = "${path.module}/../charts/cert-manager.yaml"
+  cert_manager_issuer_template = "${path.module}/../charts/letencrypt-signer.yaml"
+  grafana_dashboard_dir        = "${path.module}/../grafana/dashboards"
+  service_monitor_crd          = "${path.module}/../charts/crd-servicemonitors.yaml"
+  ama_metrics_config           = "${path.module}/../charts/ama-metrics-settings-configmap.yaml"
 
   karpenter_chart_hash = sha256(join("", [
     for file in sort(fileset(local.karpenter_chart_dir, "**")) : filesha256("${local.karpenter_chart_dir}/${file}")
@@ -41,7 +40,6 @@ locals {
     for file in sort(fileset(local.gpu_operator_chart_dir, "**")) : filesha256("${local.gpu_operator_chart_dir}/${file}")
   ]))
   cert_manager_manifest_hash        = filesha256(local.cert_manager_manifest)
-  cert_manager_ingress_class_hash   = filesha256(local.cert_manager_ingress_class_template)
   cert_manager_issuer_template_hash = filesha256(local.cert_manager_issuer_template)
   grafana_dashboard_hash = sha256(join("", [
     for file in sort(fileset(local.grafana_dashboard_dir, "*.json")) : filesha256("${local.grafana_dashboard_dir}/${file}")

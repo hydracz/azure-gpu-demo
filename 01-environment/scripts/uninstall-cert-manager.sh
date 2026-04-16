@@ -47,7 +47,7 @@ need_cmd kubectl
 
 require_env \
   KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME \
-  CERT_MANAGER_INGRESS_CLASS_NAME CERT_MANAGER_STAGING_ISSUER_NAME CERT_MANAGER_PROD_ISSUER_NAME
+  CERT_MANAGER_STAGING_ISSUER_NAME CERT_MANAGER_PROD_ISSUER_NAME
 
 if ! refresh_kubeconfig; then
   warn "Unable to refresh kubeconfig; AKS cluster may already be deleted"
@@ -57,9 +57,6 @@ fi
 log "Deleting Let's Encrypt ClusterIssuers"
 kubectl delete clusterissuer "${CERT_MANAGER_PROD_ISSUER_NAME}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl delete clusterissuer "${CERT_MANAGER_STAGING_ISSUER_NAME}" --ignore-not-found >/dev/null 2>&1 || true
-
-log "Deleting Istio IngressClass"
-kubectl delete ingressclass "${CERT_MANAGER_INGRESS_CLASS_NAME}" --ignore-not-found >/dev/null 2>&1 || true
 
 if [[ -f "${CERT_MANAGER_MANIFEST_FILE}" ]]; then
   log "Deleting cert-manager manifest"

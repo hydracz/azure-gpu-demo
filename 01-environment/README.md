@@ -12,6 +12,6 @@
 
 - 这里负责 Monitor Workspace、Log Analytics、Grafana、AKS，以及集群内的 Karpenter 和 GPU Operator 基础安装。
 - 这里也负责把仓库内置 Grafana dashboard 导入 Azure Managed Grafana，避免环境创建后还要手工补看板。
-- 这里也负责 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer 这些平台级 TLS 基础能力，供后续 workload 直接复用。
+- 这里也负责 AKS managed Gateway API、cert-manager 和 Let's Encrypt ClusterIssuer 这些平台级 TLS 基础能力，供后续 workload 直接复用。
 - Blob CSI、镜像构建、应用发布等能力放到后续阶段目录，不再塞回 01。
 - 共享前置准备步骤已经收口到顶层 00-prepare；01 只消费并校验已经准备好的网络、ACR 与镜像结果。

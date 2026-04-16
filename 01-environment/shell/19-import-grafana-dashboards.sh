@@ -17,6 +17,10 @@ if [[ "${GRAFANA_DASHBOARD_IMPORT_ENABLED}" != "true" ]]; then
   exit 0
 fi
 
+if [[ -z "${GRAFANA_NAME:-}" && -n "${GRAFANA_ID:-}" ]]; then
+  GRAFANA_NAME="${GRAFANA_ID##*/}"
+fi
+
 require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP GRAFANA_NAME
 
 AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}" \

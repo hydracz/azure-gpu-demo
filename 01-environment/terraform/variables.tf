@@ -143,8 +143,14 @@ variable "istio_external_ingress_gateway_enabled" {
   default     = true
 }
 
+variable "managed_gateway_api_enabled" {
+  description = "Whether to enable the AKS managed Gateway API CRDs on the cluster"
+  type        = bool
+  default     = true
+}
+
 variable "cert_manager_enabled" {
-  description = "Whether to install cert-manager, the Istio IngressClass, and Let's Encrypt ClusterIssuers"
+  description = "Whether to install cert-manager and the Let's Encrypt ClusterIssuers"
   type        = bool
   default     = true
 }
@@ -153,17 +159,6 @@ variable "cert_manager_acme_email" {
   description = "Email address used to register the Let's Encrypt ACME account"
   type        = string
   default     = ""
-}
-
-variable "cert_manager_ingress_class_name" {
-  description = "IngressClass name used by cert-manager HTTP-01 solver"
-  type        = string
-  default     = "istio"
-
-  validation {
-    condition     = can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.cert_manager_ingress_class_name))
-    error_message = "cert_manager_ingress_class_name must be a valid lowercase Kubernetes resource name."
-  }
 }
 
 variable "cert_manager_staging_issuer_name" {
@@ -176,18 +171,6 @@ variable "cert_manager_prod_issuer_name" {
   description = "ClusterIssuer name for Let's Encrypt production"
   type        = string
   default     = "letsencrypt-prod"
-}
-
-variable "cert_manager_ingress_gateway_namespace" {
-  description = "Namespace of the AKS managed Istio external ingress gateway service used for HTTP-01 validation"
-  type        = string
-  default     = "aks-istio-ingress"
-}
-
-variable "cert_manager_ingress_gateway_service_name" {
-  description = "Service name of the AKS managed Istio external ingress gateway used for HTTP-01 validation"
-  type        = string
-  default     = "aks-istio-ingressgateway-external"
 }
 
 variable "istio_internal_ingress_gateway_min_replicas" {
@@ -380,7 +363,7 @@ variable "karpenter_identity_name" {
 }
 
 variable "karpenter_image_repository" {
-  description = "Container image repository for the Karpenter controller"
+  description = "Target container image repository for the mirrored Karpenter controller"
   type        = string
   default     = "quay.io/hydracz/karpenter-controller"
 }

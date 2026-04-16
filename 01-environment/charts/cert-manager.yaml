@@ -13361,6 +13361,24 @@ spec:
       nodeSelector:
         kubernetes.io/os: "linux"
 ---
+# Source: cert-manager/templates/controller-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-manager-controller-config
+  namespace: cert-manager
+  labels:
+    app: cert-manager
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/instance: cert-manager
+    app.kubernetes.io/component: "controller"
+    app.kubernetes.io/version: "v1.20.2"
+data:
+  controller-config.yaml: |
+    apiVersion: controller.config.cert-manager.io/v1alpha1
+    kind: ControllerConfiguration
+    enableGatewayAPI: true
+---
 # Source: cert-manager/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -13405,6 +13423,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
           - --v=2
+          - --config=/etc/cert-manager/controller-config.yaml
           - --cluster-resource-namespace=$(POD_NAMESPACE)
           - --leader-election-namespace=kube-system
           - --acme-http01-solver-image=quay.io/jetstack/cert-manager-acmesolver:v1.20.2
@@ -13427,6 +13446,10 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          volumeMounts:
+          - name: controller-config
+            mountPath: /etc/cert-manager
+            readOnly: true
           # LivenessProbe settings are based on those used for the Kubernetes
           # controller-manager. See:
           # https://github.com/kubernetes/kubernetes/blob/806b30170c61a38fedd54cc9ede4cd6275a1ad3b/cmd/kubeadm/app/util/staticpod/utils.go#L241-L245
@@ -13442,6 +13465,10 @@ spec:
             failureThreshold: 8
       nodeSelector:
         kubernetes.io/os: "linux"
+      volumes:
+      - name: controller-config
+        configMap:
+          name: cert-manager-controller-config
 ---
 # Source: cert-manager/templates/webhook-deployment.yaml
 apiVersion: apps/v1

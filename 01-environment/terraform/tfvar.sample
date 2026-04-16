@@ -60,7 +60,7 @@ keda_prometheus_operator_deployment_name      = "keda-operator"
 karpenter_namespace        = "kube-system"
 karpenter_service_account  = "karpenter-sa"
 karpenter_identity_name    = "id-karpenter-gpu"
-karpenter_image_repository = "quay.io/hydracz/karpenter-controller"
+karpenter_image_repository = "<acr-login-server>/quay.io/hydracz/karpenter-controller"
 karpenter_image_tag        = "v20260323-dev"
 
 gpu_sku_name          = "Standard_NC128lds_xl_RTXPRO6000BSE_v6"

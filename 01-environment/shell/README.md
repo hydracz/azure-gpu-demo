@@ -4,9 +4,9 @@
 
 ## 目录内容
 
-- 10-create-aks.sh: 创建监控资源和 AKS 集群，并前置启用 AKS managed Istio 与共享 KEDA Prometheus 认证；默认直接消费 00-prepare 阶段准备好的 subnet 和 ACR。
-- 12-deploy-cert-manager.sh: 安装 cert-manager、Istio IngressClass 和 Let's Encrypt staging/prod ClusterIssuer。
-- 13-destroy-cert-manager.sh: 删除 cert-manager、Istio IngressClass 和 Let's Encrypt ClusterIssuer。
+- 10-create-aks.sh: 创建监控资源和 AKS 集群，并前置启用 AKS managed Gateway API、AKS managed Istio 与共享 KEDA Prometheus 认证；默认直接消费 00-prepare 阶段准备好的 subnet 和 ACR。
+- 12-deploy-cert-manager.sh: 安装 cert-manager，并以 Gateway API HTTP-01 solver 方式创建 Let's Encrypt staging/prod ClusterIssuer。
+- 13-destroy-cert-manager.sh: 删除 cert-manager 和 Let's Encrypt ClusterIssuer。
 - 19-import-grafana-dashboards.sh: 把仓库内置的 Grafana 仪表板导入到当前 Azure Managed Grafana。
 - 11-delete-aks.sh: 删除 AKS。
 - 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool，只读取 00-prepare 已写入的镜像仓库和网络信息。
@@ -48,10 +48,10 @@ shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下
 同时，10-create-aks.sh 现在会默认确保以下平台能力已经就绪：
 
 - AKS managed Istio (`asm-1-27`)
+- AKS managed Gateway API
 - external ingress gateway
 - internal ingress gateway
 - cert-manager
-- Kubernetes IngressClass `istio`
 - Let's Encrypt `ClusterIssuer`（staging / prod）
 - Azure Managed Grafana dashboard 导入（Istio workload + AKS GPU DCGM）
 - KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 `ClusterTriggerAuthentication`

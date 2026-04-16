@@ -31,6 +31,12 @@ resource "azurerm_kubernetes_cluster" "main" {
   dns_prefix          = var.cluster_name
   tags                = local.common_tags
 
+  lifecycle {
+    ignore_changes = [
+      microsoft_defender,
+    ]
+  }
+
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 

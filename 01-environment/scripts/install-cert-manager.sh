@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVIRONMENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CERT_MANAGER_NAMESPACE="cert-manager"
 CERT_MANAGER_MANIFEST_FILE="${ENVIRONMENT_DIR}/charts/cert-manager.yaml"
-CERT_MANAGER_INGRESS_CLASS_TEMPLATE_FILE="${ENVIRONMENT_DIR}/charts/istio-ingressclass.yaml"
 CERT_MANAGER_ISSUER_TEMPLATE_FILE="${ENVIRONMENT_DIR}/charts/letencrypt-signer.yaml"
 
 log() {
@@ -72,24 +71,6 @@ wait_for_cluster_api() {
   fail "Kubernetes API did not become ready in time"
 }
 
-wait_for_service() {
-  local namespace="$1"
-  local name="$2"
-  local attempts="${3:-60}"
-  local attempt
-
-  for attempt in $(seq 1 "${attempts}"); do
-    if kubectl get service "${name}" -n "${namespace}" >/dev/null 2>&1; then
-      return 0
-    fi
-
-    warn "Waiting for service ${namespace}/${name} (${attempt}/${attempts})"
-    sleep 10
-  done
-
-  fail "Service ${namespace}/${name} was not created in time"
-}
-
 wait_for_crd() {
   local name="$1"
   local attempts="${2:-60}"
@@ -114,6 +95,24 @@ wait_for_deployment_rollout() {
   kubectl rollout status deployment/"${name}" -n "${namespace}" --timeout=10m >/dev/null
 }
 
+wait_for_webhook_cabundle() {
+  local attempts="${1:-60}"
+  local attempt
+  local cabundle
+
+  for attempt in $(seq 1 "${attempts}"); do
+    cabundle="$(kubectl get validatingwebhookconfiguration cert-manager-webhook -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null || true)"
+    if [[ -n "${cabundle}" ]]; then
+      return 0
+    fi
+
+    warn "Waiting for cert-manager webhook CA bundle injection (${attempt}/${attempts})"
+    sleep 10
+  done
+
+  fail "cert-manager webhook CA bundle was not injected in time"
+}
+
 render_template() {
   local template_file="$1"
   local output_file="$2"
@@ -126,7 +125,6 @@ import sys
 template = Path(sys.argv[1]).read_text(encoding="utf-8")
 replacements = {
     "__CERT_MANAGER_ACME_EMAIL__": os.environ["CERT_MANAGER_ACME_EMAIL"],
-    "__CERT_MANAGER_INGRESS_CLASS_NAME__": os.environ["CERT_MANAGER_INGRESS_CLASS_NAME"],
     "__CERT_MANAGER_STAGING_ISSUER_NAME__": os.environ["CERT_MANAGER_STAGING_ISSUER_NAME"],
     "__CERT_MANAGER_PROD_ISSUER_NAME__": os.environ["CERT_MANAGER_PROD_ISSUER_NAME"],
 }
@@ -160,23 +158,48 @@ wait_for_clusterissuer_ready() {
   fail "ClusterIssuer ${name} did not become Ready in time"
 }
 
+apply_clusterissuers_with_retry() {
+  local file="$1"
+  local attempts="${2:-30}"
+  local attempt
+  local output
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if output="$(kubectl apply -f "${file}" 2>&1)"; then
+      return 0
+    fi
+
+    if grep -Eq 'failed calling webhook|x509: certificate signed by unknown authority|no endpoints available for service "cert-manager-webhook"' <<<"${output}"; then
+      warn "cert-manager webhook is not ready for ClusterIssuer admission yet (${attempt}/${attempts})"
+      sleep 10
+      continue
+    fi
+
+    printf '%s\n' "${output}" >&2
+    fail "Failed to apply ClusterIssuers"
+  done
+
+  printf '%s\n' "${output}" >&2
+  fail "ClusterIssuer admission webhook did not become ready in time"
+}
+
 need_cmd az
 need_cmd kubectl
 need_cmd python3
 
 require_env \
   KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME \
-  CERT_MANAGER_ACME_EMAIL CERT_MANAGER_INGRESS_CLASS_NAME \
-  CERT_MANAGER_STAGING_ISSUER_NAME CERT_MANAGER_PROD_ISSUER_NAME \
-  CERT_MANAGER_INGRESS_GATEWAY_NAMESPACE CERT_MANAGER_INGRESS_GATEWAY_SERVICE_NAME
+  CERT_MANAGER_ACME_EMAIL \
+  CERT_MANAGER_STAGING_ISSUER_NAME CERT_MANAGER_PROD_ISSUER_NAME
 
 [[ -f "${CERT_MANAGER_MANIFEST_FILE}" ]] || fail "Missing manifest: ${CERT_MANAGER_MANIFEST_FILE}"
-[[ -f "${CERT_MANAGER_INGRESS_CLASS_TEMPLATE_FILE}" ]] || fail "Missing manifest template: ${CERT_MANAGER_INGRESS_CLASS_TEMPLATE_FILE}"
 [[ -f "${CERT_MANAGER_ISSUER_TEMPLATE_FILE}" ]] || fail "Missing manifest template: ${CERT_MANAGER_ISSUER_TEMPLATE_FILE}"
 
 refresh_kubeconfig
 wait_for_cluster_api
-wait_for_service "${CERT_MANAGER_INGRESS_GATEWAY_NAMESPACE}" "${CERT_MANAGER_INGRESS_GATEWAY_SERVICE_NAME}"
+wait_for_crd gatewayclasses.gateway.networking.k8s.io
+wait_for_crd gateways.gateway.networking.k8s.io
+wait_for_crd httproutes.gateway.networking.k8s.io
 
 log "Applying cert-manager manifest"
 kubectl apply -f "${CERT_MANAGER_MANIFEST_FILE}" >/dev/null
@@ -186,18 +209,15 @@ wait_for_crd certificates.cert-manager.io
 wait_for_deployment_rollout "${CERT_MANAGER_NAMESPACE}" cert-manager
 wait_for_deployment_rollout "${CERT_MANAGER_NAMESPACE}" cert-manager-cainjector
 wait_for_deployment_rollout "${CERT_MANAGER_NAMESPACE}" cert-manager-webhook
+wait_for_webhook_cabundle
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
-render_template "${CERT_MANAGER_INGRESS_CLASS_TEMPLATE_FILE}" "${tmp_dir}/ingressclass.yaml"
 render_template "${CERT_MANAGER_ISSUER_TEMPLATE_FILE}" "${tmp_dir}/clusterissuers.yaml"
 
-log "Applying Istio IngressClass"
-kubectl apply -f "${tmp_dir}/ingressclass.yaml" >/dev/null
-
 log "Applying Let's Encrypt ClusterIssuers"
-kubectl apply -f "${tmp_dir}/clusterissuers.yaml" >/dev/null
+apply_clusterissuers_with_retry "${tmp_dir}/clusterissuers.yaml"
 
 wait_for_clusterissuer_ready "${CERT_MANAGER_STAGING_ISSUER_NAME}"
 wait_for_clusterissuer_ready "${CERT_MANAGER_PROD_ISSUER_NAME}"
