@@ -86,7 +86,7 @@ variable "system_pool_name" {
 variable "system_vm_size" {
   description = "AKS system node pool VM size"
   type        = string
-  default     = "Standard_D4ads_v6"
+  default     = "Standard_D8ads_v6"
 }
 
 variable "system_node_count" {

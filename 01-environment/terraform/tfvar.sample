@@ -19,7 +19,7 @@ diagnostic_setting_name = "aks-all-logs"
 existing_subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-aks-karpenter-gpu-net/providers/Microsoft.Network/virtualNetworks/vnet-aks-karpenter-gpu/subnets/snet-aks-underlay"
 
 system_pool_name  = "sysd4"
-system_vm_size    = "Standard_D4ads_v6"
+system_vm_size    = "Standard_D8ads_v6"
 system_node_count = 3
 aks_admin_username = "azureuser"
 aks_identity_name  = "id-aks-control-plane"

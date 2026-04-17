@@ -28,46 +28,46 @@ ensure_aks_kubeconfig
 
 QWEN_LOADTEST_NAMESPACE="${QWEN_LOADTEST_NAMESPACE:-qwen-loadtest}"
 QWEN_LOADTEST_NAME="${QWEN_LOADTEST_NAME:-qwen-loadtest-target}"
-QWEN_LOADTEST_SERVICE_NAME="${QWEN_LOADTEST_SERVICE_NAME:-${QWEN_LOADTEST_NAME}}"
+QWEN_LOADTEST_GATEWAY_NAME="${QWEN_LOADTEST_GATEWAY_NAME:-qwen-loadtest-external}"
 QWEN_LOADTEST_TEST_MODE="${QWEN_LOADTEST_TEST_MODE:-predict}"
 QWEN_LOADTEST_TEST_PATH="${QWEN_LOADTEST_TEST_PATH:-/predict}"
 QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY="${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY:-true}"
-QWEN_LOADTEST_TEST_CONCURRENCY="${QWEN_LOADTEST_TEST_CONCURRENCY:-2}"
+QWEN_LOADTEST_TEST_CONCURRENCY="${QWEN_LOADTEST_TEST_CONCURRENCY:-1}"
 QWEN_LOADTEST_TEST_REQUEST_TIMEOUT="${QWEN_LOADTEST_TEST_REQUEST_TIMEOUT:-180}"
+QWEN_LOADTEST_TEST_STEPS="${QWEN_LOADTEST_TEST_STEPS:-6}"
+QWEN_LOADTEST_TEST_CFG="${QWEN_LOADTEST_TEST_CFG:-2.5}"
 QWEN_LOADTEST_URL="${QWEN_LOADTEST_URL:-}"
 QWEN_LOADTEST_HOST="${QWEN_LOADTEST_HOST:-}"
 QWEN_LOADTEST_GATEWAY_IP="${QWEN_LOADTEST_GATEWAY_IP:-}"
 QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE:-${QWEN_LOADTEST_NAMESPACE}}"
-QWEN_LOADTEST_GATEWAY_SELECTOR="${QWEN_LOADTEST_GATEWAY_SELECTOR:-qwen-loadtest-external}"
+QWEN_LOADTEST_GATEWAY_SELECTOR="${QWEN_LOADTEST_GATEWAY_SELECTOR:-${QWEN_LOADTEST_GATEWAY_NAME}}"
 QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_CERTIFICATE_NAME:-${QWEN_LOADTEST_TLS_SECRET_NAME:-qwen-loadtest-target-tls}}"
+QWEN_LOADTEST_SEED_NAME="${QWEN_LOADTEST_SEED_NAME:-${QWEN_LOADTEST_NAME}-seed}"
+QWEN_LOADTEST_ELASTIC_NAME="${QWEN_LOADTEST_ELASTIC_NAME:-${QWEN_LOADTEST_NAME}-elastic}"
+QWEN_LOADTEST_ELASTIC_MIN_REPLICAS="${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS:-0}"
+QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME="${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME:-${QWEN_LOADTEST_SEED_NAME}}"
+QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME="${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME:-${QWEN_LOADTEST_ELASTIC_NAME}}"
 
-if [[ "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" == "aks-istio-ingress" ]]; then
-  QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_NAMESPACE}"
-fi
-
-if [[ "${QWEN_LOADTEST_GATEWAY_SELECTOR}" == "aks-istio-ingressgateway-external" ]]; then
-  QWEN_LOADTEST_GATEWAY_SELECTOR="qwen-loadtest-external"
-fi
-
-if [[ "${QWEN_LOADTEST_CERTIFICATE_NAME}" == "${QWEN_LOADTEST_NAME}" ]]; then
-  QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_TLS_SECRET_NAME:-qwen-loadtest-target-tls}"
-fi
+refresh_qwen_loadtest_gateway_access "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" "${QWEN_LOADTEST_GATEWAY_SELECTOR}" "${QWEN_LOADTEST_NAME}"
 
 [[ -n "${QWEN_LOADTEST_URL}" ]] || fail "QWEN_LOADTEST_URL is empty. Run 41-deploy.sh first."
 [[ -n "${QWEN_LOADTEST_HOST}" ]] || fail "QWEN_LOADTEST_HOST is empty. Run 41-deploy.sh first."
 [[ -n "${QWEN_LOADTEST_GATEWAY_IP}" ]] || fail "QWEN_LOADTEST_GATEWAY_IP is empty. Run 41-deploy.sh first."
 
-kubectl rollout status deployment/${QWEN_LOADTEST_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
+kubectl rollout status deployment/${QWEN_LOADTEST_SEED_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
 
-if [[ "${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY}" == "true" ]]; then
-  gateway_target_ip="$(kubectl -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" get svc "${QWEN_LOADTEST_GATEWAY_SELECTOR}" -o jsonpath='{.spec.clusterIP}')"
-else
-  gateway_target_ip="${QWEN_LOADTEST_GATEWAY_IP}"
+if (( QWEN_LOADTEST_ELASTIC_MIN_REPLICAS > 0 )); then
+  kubectl rollout status deployment/${QWEN_LOADTEST_ELASTIC_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
 fi
+
+gateway_target_ip="$(resolve_qwen_loadtest_gateway_target_ip "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" "${QWEN_LOADTEST_GATEWAY_SELECTOR}" "${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY}")"
 
 [[ -n "${gateway_target_ip}" ]] || fail "Unable to resolve gateway target IP"
 
 log "Sending ${QWEN_LOADTEST_TEST_CONCURRENCY} concurrent HTTPS requests to ${QWEN_LOADTEST_HOST}${QWEN_LOADTEST_TEST_PATH} via ${gateway_target_ip}"
+if [[ "${QWEN_LOADTEST_TEST_MODE}" == "predict" ]]; then
+  log "  steps/cfg   : ${QWEN_LOADTEST_TEST_STEPS}/${QWEN_LOADTEST_TEST_CFG}"
+fi
 
 if [[ "${QWEN_LOADTEST_TEST_MODE}" == "predict" ]]; then
   smoke_test_overrides='{"apiVersion":"v1","kind":"Pod","metadata":{"annotations":{"sidecar.istio.io/inject":"false"}}}'
@@ -81,6 +81,8 @@ if [[ "${QWEN_LOADTEST_TEST_MODE}" == "predict" ]]; then
     --env=TARGET_PATH=${QWEN_LOADTEST_TEST_PATH} \
     --env=TEST_CONCURRENCY=${QWEN_LOADTEST_TEST_CONCURRENCY} \
     --env=REQUEST_TIMEOUT=${QWEN_LOADTEST_TEST_REQUEST_TIMEOUT} \
+    --env=TEST_STEPS=${QWEN_LOADTEST_TEST_STEPS} \
+    --env=TEST_CFG=${QWEN_LOADTEST_TEST_CFG} \
     --attach \
     --rm \
     --command -- sh -ceu 'cat <<"EOF" | base64 -d > /tmp/tiny.png
@@ -93,8 +95,8 @@ for req in $(seq 1 "$TEST_CONCURRENCY"); do
       --resolve "$TARGET_HOST:443:$TARGET_IP" \
       -F image=@/tmp/tiny.png \
       -F prompt="smoke-test-${req}" \
-      -F steps=6 \
-      -F cfg=2.5 \
+      -F steps="$TEST_STEPS" \
+      -F cfg="$TEST_CFG" \
       "https://$TARGET_HOST$TARGET_PATH" \
       -o "/tmp/resp-${req}.json" \
       -w "request=${req} status=%{http_code} total=%{time_total}\\n" \
@@ -131,4 +133,5 @@ log "Current certificate status"
 kubectl -n "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" get certificate "${QWEN_LOADTEST_CERTIFICATE_NAME}" -o wide
 
 log "Recent ScaledObject condition"
-kubectl -n "${QWEN_LOADTEST_NAMESPACE}" describe scaledobject "${QWEN_LOADTEST_NAME}" | sed -n '1,220p'
+kubectl -n "${QWEN_LOADTEST_NAMESPACE}" describe scaledobject "${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME}" | sed -n '1,220p'
+kubectl -n "${QWEN_LOADTEST_NAMESPACE}" describe scaledobject "${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME}" | sed -n '1,220p'

@@ -46,6 +46,8 @@ source "${SCRIPT_DIR}/image-sync-lib.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/karpenter-image-sync.sh"
 # shellcheck disable=SC1091
+source "${SCRIPT_DIR}/dragonfly-image-sync.sh"
+# shellcheck disable=SC1091
 source "${SCRIPT_DIR}/gpu-operator-image-sync.sh"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/kiali-image-sync.sh"
@@ -75,6 +77,9 @@ log "  acr name  : ${ACR_NAME}"
 log "  sync tool : $(image_sync_selected_tool)"
 
 sync_karpenter_image
+if [[ "${DRAGONFLY_ENABLED:-true}" == "true" ]]; then
+  sync_dragonfly_images
+fi
 sync_gpu_operator_images
 
 if [[ "${ISTIO_KIALI_ENABLED}" == "true" ]]; then
@@ -85,6 +90,10 @@ log "Shared asset preparation completed"
 log "  shared env file              : ${SHARED_ENV_FILE}"
 log "  ACR login server             : ${ACR_LOGIN_SERVER}"
 log "  Karpenter target repository  : ${KARPENTER_TARGET_IMAGE_REPOSITORY}"
+if [[ -n "${DRAGONFLY_CLIENT_TARGET_REPOSITORY:-}" ]]; then
+  log "  Dragonfly client target repo : ${DRAGONFLY_CLIENT_TARGET_REPOSITORY}"
+  log "  Dragonfly manager target repo: ${DRAGONFLY_MANAGER_TARGET_REPOSITORY}"
+fi
 log "  GPU driver target repository : ${GPU_DRIVER_TARGET_REPOSITORY}"
 if [[ -n "${ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY:-}" ]]; then
   log "  Kiali operator target repo   : ${ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY}"

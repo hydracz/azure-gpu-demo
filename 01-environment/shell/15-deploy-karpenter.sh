@@ -396,6 +396,51 @@ spec:
   installGPUDrivers: ${INSTALL_GPU_DRIVERS}
 EOF
 
+# NodePool — Seed GPU (固定 on-demand 基线层)
+cat <<EOF | kubectl apply -f -
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu-seed-pool
+  annotations:
+    kubernetes.io/description: "On-demand GPU seed pool - baseline workload pods land here first"
+spec:
+  weight: 50
+  template:
+    metadata:
+      labels:
+        workload: ${GPU_NODE_WORKLOAD_LABEL}
+        gputype: ${GPU_TYPE}
+        gpu-role: ${GPU_SEED_NODE_ROLE_LABEL}
+        spot_pool: "no"
+    spec:
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values:
+${gpu_zones_yaml}
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["${GPU_SKU_NAME}"]
+      taints:
+        - key: workload
+          value: ${GPU_NODE_WORKLOAD_LABEL}
+          effect: NoSchedule
+      nodeClassRef:
+        group: karpenter.azure.com
+        kind: AKSNodeClass
+        name: gpu
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: ${CONSOLIDATE_AFTER}
+EOF
+
 # NodePool — Spot GPU (高权重, 优先使用)
 # 不设置 spec.limits，避免 Azure SKU 元数据中的 GPU 数与实际可用 GPU 数不一致时
 # 被 Karpenter 提前判定为 "all available instance types exceed limits"
@@ -413,6 +458,7 @@ spec:
       labels:
         workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
+        gpu-role: ${GPU_ELASTIC_NODE_ROLE_LABEL}
         spot_pool: "yes"
       annotations:
         karpenter.azure.com/spot-max-price: "${SPOT_MAX_PRICE}"
@@ -459,6 +505,7 @@ spec:
       labels:
         workload: ${GPU_NODE_WORKLOAD_LABEL}
         gputype: ${GPU_TYPE}
+        gpu-role: ${GPU_ELASTIC_NODE_ROLE_LABEL}
         spot_pool: "no"
     spec:
       requirements:
@@ -494,7 +541,7 @@ log "  GPU SKU          : ${GPU_SKU_NAME}"
 log "  Custom subnet    : ${vnet_subnet_id}"
 log "  GPU OS disk size : ${GPU_OS_DISK_SIZE_GB} GiB"
 log "  installGPUDrivers: ${INSTALL_GPU_DRIVERS}"
-log "  NodePools        : gpu-spot-pool (weight=100), gpu-ondemand-pool (weight=10)"
+log "  NodePools        : gpu-seed-pool (weight=50), gpu-spot-pool (weight=100), gpu-ondemand-pool (weight=10)"
 log "  AKSNodeClass     : gpu (${GPU_NODE_IMAGE_FAMILY}, subnet=${vnet_subnet_id}, osDisk=${GPU_OS_DISK_SIZE_GB}GiB, installGPUDrivers=${INSTALL_GPU_DRIVERS})"
 log ""
 log "⚠ NOTE: Spot quota may be < 128 vCPU. If gpu-spot-pool cannot provision,"

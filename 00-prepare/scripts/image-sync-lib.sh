@@ -180,11 +180,29 @@ image_sync_validate_source_credentials() {
   fi
 }
 
+image_sync_normalize_source_ref_for_acr_import() {
+  local source_ref="$1"
+  local source_repo="${source_ref%%[:@]*}"
+  local first_component="${source_repo%%/*}"
+
+  if [[ "${source_repo}" == */* ]]; then
+    if [[ "${first_component}" == *.* || "${first_component}" == *:* || "${first_component}" == "localhost" ]]; then
+      printf '%s\n' "${source_ref}"
+    else
+      printf 'docker.io/%s\n' "${source_ref}"
+    fi
+    return
+  fi
+
+  printf 'docker.io/library/%s\n' "${source_ref}"
+}
+
 image_sync_run_az_acr_import() {
   local source_ref="$1"
   local target_ref="$2"
   local source_username="$3"
   local source_password="$4"
+  local normalized_source_ref=""
   local attempt
   local -a import_args=(
     --name "${ACR_NAME}"
@@ -196,10 +214,20 @@ image_sync_run_az_acr_import() {
   )
 
   image_sync_validate_source_credentials "${source_username}" "${source_password}"
+  normalized_source_ref="$(image_sync_normalize_source_ref_for_acr_import "${source_ref}")"
 
   if [[ -n "${source_username}" ]]; then
     import_args+=(--username "${source_username}" --password "${source_password}")
   fi
+
+  import_args=(
+    --name "${ACR_NAME}"
+    --resource-group "${ACR_RESOURCE_GROUP}"
+    --source "${normalized_source_ref}"
+    --image "${target_ref}"
+    --force
+    --only-show-errors
+  )
 
   if [[ "${IMAGE_SYNC_AZ_ACR_IMPORT_NO_WAIT:-false}" == "true" ]]; then
     import_args+=(--no-wait)
@@ -208,20 +236,20 @@ image_sync_run_az_acr_import() {
   for attempt in 1 2 3; do
     if az acr import "${import_args[@]}" >/dev/null; then
       if [[ "${IMAGE_SYNC_AZ_ACR_IMPORT_NO_WAIT:-false}" == "true" ]]; then
-        log "Submitted background import ${source_ref} -> ${ACR_LOGIN_SERVER}/${target_ref}"
+        log "Submitted background import ${normalized_source_ref} -> ${ACR_LOGIN_SERVER}/${target_ref}"
       else
-        log "Mirrored ${source_ref} -> ${ACR_LOGIN_SERVER}/${target_ref}"
+        log "Mirrored ${normalized_source_ref} -> ${ACR_LOGIN_SERVER}/${target_ref}"
       fi
       return
     fi
 
     if [[ "${attempt}" != "3" ]]; then
-      warn "Retrying az acr import (${attempt}/3): ${source_ref}"
+      warn "Retrying az acr import (${attempt}/3): ${normalized_source_ref}"
       sleep 10
     fi
   done
 
-  fail "Failed to mirror ${source_ref} into ${ACR_NAME} via az acr import"
+  fail "Failed to mirror ${normalized_source_ref} into ${ACR_NAME} via az acr import"
 }
 
 image_sync_run_skopeo_copy() {

@@ -88,7 +88,7 @@ apply_derived_config() {
   set_default_env MONITOR_WORKSPACE_PUBLIC_NETWORK_ACCESS_ENABLED "true"
   set_default_env GRAFANA_MAJOR_VERSION "12"
   set_default_env SYSTEM_POOL_NAME "sysd4"
-  set_default_env SYSTEM_VM_SIZE "Standard_D4ads_v6"
+  set_default_env SYSTEM_VM_SIZE "Standard_D8ads_v6"
   set_default_env SYSTEM_NODE_COUNT "3"
   set_default_env AKS_ADMIN_USERNAME "azureuser"
   set_default_env VNET_ADDRESS_PREFIX "10.240.0.0/16"
@@ -133,6 +133,39 @@ apply_derived_config() {
   set_default_env CERT_MANAGER_PROD_ISSUER_NAME "letsencrypt-prod"
   set_default_env IMAGE_SYNC_TOOL "az-acr-import"
 
+  set_default_env DRAGONFLY_ENABLED "true"
+  set_default_env DRAGONFLY_NAMESPACE "dragonfly-system"
+  set_default_env DRAGONFLY_RELEASE_NAME "dragonfly"
+  set_default_env DRAGONFLY_CHART_VERSION "1.6.13"
+  set_default_env DRAGONFLY_MANAGER_REPLICAS "1"
+  set_default_env DRAGONFLY_SCHEDULER_REPLICAS "1"
+  set_default_env DRAGONFLY_SEED_CLIENT_REPLICAS "1"
+  set_default_env DRAGONFLY_MANAGER_IMAGE_REPOSITORY "dragonflyoss/manager"
+  set_default_env DRAGONFLY_MANAGER_IMAGE_TAG "v2.4.1"
+  set_default_env DRAGONFLY_SCHEDULER_IMAGE_REPOSITORY "dragonflyoss/scheduler"
+  set_default_env DRAGONFLY_SCHEDULER_IMAGE_TAG "v2.4.1"
+  set_default_env DRAGONFLY_CLIENT_IMAGE_REPOSITORY "dragonflyoss/client"
+  set_default_env DRAGONFLY_CLIENT_IMAGE_TAG "v1.2.9"
+  set_default_env DRAGONFLY_BUSYBOX_IMAGE_REPOSITORY "busybox"
+  set_default_env DRAGONFLY_BUSYBOX_IMAGE_TAG "latest"
+  set_default_env DRAGONFLY_MYSQL_IMAGE_REPOSITORY "bitnamilegacy/mysql"
+  set_default_env DRAGONFLY_MYSQL_IMAGE_TAG "8.0.36-debian-12-r10"
+  set_default_env DRAGONFLY_REDIS_IMAGE_REPOSITORY "bitnamilegacy/redis"
+  set_default_env DRAGONFLY_REDIS_IMAGE_TAG "7.2.5-debian-12-r0"
+  set_default_env DRAGONFLY_CONTAINERD_REGISTRIES_CSV "docker.io,ghcr.io,nvcr.io"
+  set_default_env DRAGONFLY_PREFETCH_HOLD_SECONDS "3600"
+  set_default_env DRAGONFLY_CACHE_WARMER_NAME "dragonfly-cache-warmer"
+  set_default_env DRAGONFLY_PREFETCH_IMAGE_PULL_POLICY "IfNotPresent"
+  set_default_env DRAGONFLY_PREFETCH_CPU_REQUEST "10m"
+  set_default_env DRAGONFLY_PREFETCH_MEMORY_REQUEST "16Mi"
+  set_default_env DRAGONFLY_PREFETCH_EPHEMERAL_STORAGE_REQUEST "32Mi"
+  set_default_env DRAGONFLY_PREFETCH_READY_TIMEOUT_SECONDS "600"
+  set_default_env DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME "dragonfly-containerd-configurer"
+  set_default_env DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME "dragonfly-containerd-config"
+  set_default_env DRAGONFLY_WORKLOAD_LABEL "gpu-test"
+  set_default_env DRAGONFLY_SEED_NODE_ROLE_LABEL "seed"
+  set_default_env DRAGONFLY_PREFETCH_NODE_COUNT "1"
+
   set_default_env KARPENTER_NAMESPACE "kube-system"
   set_default_env KARPENTER_SERVICE_ACCOUNT "karpenter-sa"
   set_default_env KARPENTER_IMAGE_REPO "quay.io/hydracz/karpenter-controller"
@@ -165,8 +198,15 @@ apply_derived_config() {
   set_default_env GPU_DRIVER_VERSION_SOURCE_TAG_2404 "${GPU_DRIVER_VERSION}-ubuntu24.04"
 
   set_default_env GPU_NODE_WORKLOAD_LABEL "gpu-test"
+  set_default_env GPU_SEED_NODE_ROLE_LABEL "seed"
+  set_default_env GPU_ELASTIC_NODE_ROLE_LABEL "elastic"
+  set_default_env DRAGONFLY_WORKLOAD_LABEL "${GPU_NODE_WORKLOAD_LABEL}"
+  set_default_env DRAGONFLY_SEED_NODE_ROLE_LABEL "${GPU_SEED_NODE_ROLE_LABEL}"
+  set_default_env DRAGONFLY_PREFETCH_NODE_COUNT "${QWEN_LOADTEST_SEED_MIN_REPLICAS:-1}"
   set_default_env APP_NODE_WORKLOAD_LABEL "${GPU_NODE_WORKLOAD_LABEL}"
   set_default_env QWEN_LOADTEST_NODE_WORKLOAD_LABEL "${GPU_NODE_WORKLOAD_LABEL}"
+  set_default_env QWEN_LOADTEST_SEED_NODE_ROLE_LABEL "${GPU_SEED_NODE_ROLE_LABEL}"
+  set_default_env QWEN_LOADTEST_ELASTIC_NODE_ROLE_LABEL "${GPU_ELASTIC_NODE_ROLE_LABEL}"
 
   set_default_env APP_NAMESPACE "gpu-test"
   set_default_env APP_NAME "gpu-probe"
@@ -188,6 +228,10 @@ apply_derived_config() {
   set_default_env QWEN_LOADTEST_SOURCE_USERNAME "${QWEN_LOADTEST_SOURCE_LOGIN_SERVER%%.*}"
   set_default_env QWEN_LOADTEST_SOURCE_IMAGE_REPOSITORY "qwen-loadtest-target"
   set_default_env QWEN_LOADTEST_SOURCE_IMAGE_TAG "sea-a100-failfast-20260413"
+  set_default_env QWEN_LOADTEST_SEED_MIN_REPLICAS "1"
+  set_default_env QWEN_LOADTEST_SEED_MAX_REPLICAS "3"
+  set_default_env QWEN_LOADTEST_ELASTIC_MIN_REPLICAS "0"
+  set_default_env QWEN_LOADTEST_ELASTIC_MAX_REPLICAS "7"
   set_default_env QWEN_LOADTEST_TARGET_REPOSITORY "aks/qwen-loadtest-target"
   set_default_env QWEN_LOADTEST_CONTAINER_PORT "8080"
   set_default_env QWEN_LOADTEST_SERVICE_PORT "8080"
@@ -212,11 +256,18 @@ apply_derived_config() {
   set_default_env QWEN_LOADTEST_CPU_LIMIT "8"
   set_default_env QWEN_LOADTEST_MEMORY_REQUEST "24Gi"
   set_default_env QWEN_LOADTEST_MEMORY_LIMIT "32Gi"
-  set_default_env QWEN_LOADTEST_TEST_CONCURRENCY "2"
+  set_default_env QWEN_LOADTEST_TEST_CONCURRENCY "1"
   set_default_env QWEN_LOADTEST_TEST_REQUEST_TIMEOUT "180"
   set_default_env QWEN_LOADTEST_TEST_MODE "predict"
   set_default_env QWEN_LOADTEST_TEST_PATH "/predict"
   set_default_env QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY "true"
+  set_default_env QWEN_LOADTEST_TEST_STEPS "6"
+  set_default_env QWEN_LOADTEST_TEST_CFG "2.5"
+  set_default_env QWEN_LOADTEST_STRESS_DURATION_SECONDS "900"
+  set_default_env QWEN_LOADTEST_STRESS_CONCURRENCY "4"
+  set_default_env QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT "900"
+  set_default_env QWEN_LOADTEST_STRESS_STEPS "${QWEN_LOADTEST_TEST_STEPS}"
+  set_default_env QWEN_LOADTEST_STRESS_CFG "${QWEN_LOADTEST_TEST_CFG}"
   if [[ -z "${QWEN_LOADTEST_GPU_TYPE:-}" && -n "${GPU_TYPE:-}" ]]; then
     set_default_env QWEN_LOADTEST_GPU_TYPE "${GPU_TYPE}"
   fi
@@ -473,5 +524,40 @@ with path.open('a', encoding='utf-8') as handle:
   handle.write(f'{key}="{shell_double_quote(value)}"\n')
 PY
   fi
+}
+
+refresh_qwen_loadtest_gateway_access() {
+  local gateway_namespace="$1"
+  local gateway_service="$2"
+  local workload_name="$3"
+  local current_gateway_ip=""
+
+  current_gateway_ip="$(kubectl -n "${gateway_namespace}" get svc "${gateway_service}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+  [[ -n "${current_gateway_ip}" ]] || return 0
+
+  if [[ -z "${QWEN_LOADTEST_GATEWAY_IP:-}" || "${QWEN_LOADTEST_GATEWAY_IP}" != "${current_gateway_ip}" ]]; then
+    QWEN_LOADTEST_GATEWAY_IP="${current_gateway_ip}"
+    write_generated_env QWEN_LOADTEST_GATEWAY_IP "${QWEN_LOADTEST_GATEWAY_IP}"
+  fi
+
+  if [[ -z "${QWEN_LOADTEST_HOST:-}" || "${QWEN_LOADTEST_HOST}" == "${workload_name}."*.sslip.io ]]; then
+    QWEN_LOADTEST_HOST="${workload_name}.${current_gateway_ip}.sslip.io"
+    QWEN_LOADTEST_URL="https://${QWEN_LOADTEST_HOST}"
+    write_generated_env QWEN_LOADTEST_HOST "${QWEN_LOADTEST_HOST}"
+    write_generated_env QWEN_LOADTEST_URL "${QWEN_LOADTEST_URL}"
+  fi
+}
+
+resolve_qwen_loadtest_gateway_target_ip() {
+  local gateway_namespace="$1"
+  local gateway_service="$2"
+  local via_cluster_gateway="$3"
+
+  if [[ "${via_cluster_gateway}" == "true" ]]; then
+    kubectl -n "${gateway_namespace}" get svc "${gateway_service}" -o jsonpath='{.spec.clusterIP}'
+    return 0
+  fi
+
+  printf '%s\n' "${QWEN_LOADTEST_GATEWAY_IP:-}"
 }
 

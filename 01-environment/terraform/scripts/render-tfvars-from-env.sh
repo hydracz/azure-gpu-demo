@@ -153,7 +153,7 @@ payload = {
     "diagnostic_setting_name": get("AKS_DIAGNOSTIC_SETTING_NAME", "aks-all-logs"),
     "existing_subnet_id": existing_subnet_id,
     "system_pool_name": get("SYSTEM_POOL_NAME", "sysd4"),
-    "system_vm_size": get("SYSTEM_VM_SIZE", "Standard_D4ads_v6"),
+    "system_vm_size": get("SYSTEM_VM_SIZE", "Standard_D8ads_v6"),
     "system_node_count": as_int("SYSTEM_NODE_COUNT", 3),
     "aks_admin_username": get("AKS_ADMIN_USERNAME", "azureuser"),
     "service_cidr": get("SERVICE_CIDR", "172.16.32.0/19"),

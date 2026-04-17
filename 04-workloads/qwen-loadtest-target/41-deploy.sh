@@ -44,15 +44,6 @@ fi
 if [[ -n "${QWEN_LOADTEST_HOST_OVERRIDE}" ]]; then
   QWEN_LOADTEST_HOST="${QWEN_LOADTEST_HOST_OVERRIDE}"
 fi
-if [[ -n "${QWEN_LOADTEST_TEST_MODE_OVERRIDE}" ]]; then
-  QWEN_LOADTEST_TEST_MODE="${QWEN_LOADTEST_TEST_MODE_OVERRIDE}"
-fi
-if [[ -n "${QWEN_LOADTEST_TEST_PATH_OVERRIDE}" ]]; then
-  QWEN_LOADTEST_TEST_PATH="${QWEN_LOADTEST_TEST_PATH_OVERRIDE}"
-fi
-if [[ -n "${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY_OVERRIDE}" ]]; then
-  QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY="${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY_OVERRIDE}"
-fi
 ensure_aks_kubeconfig
 
 QWEN_LOADTEST_NAMESPACE="${QWEN_LOADTEST_NAMESPACE:-qwen-loadtest}"
@@ -69,8 +60,10 @@ QWEN_LOADTEST_KEDA_AUTH_NAME="${QWEN_LOADTEST_KEDA_AUTH_NAME:-${KEDA_PROMETHEUS_
 QWEN_LOADTEST_ISTIO_REVISION="${QWEN_LOADTEST_ISTIO_REVISION:-}"
 QWEN_LOADTEST_CONTAINER_PORT="${QWEN_LOADTEST_CONTAINER_PORT:-8080}"
 QWEN_LOADTEST_SERVICE_PORT="${QWEN_LOADTEST_SERVICE_PORT:-8080}"
-QWEN_LOADTEST_MIN_REPLICAS="${QWEN_LOADTEST_MIN_REPLICAS:-1}"
-QWEN_LOADTEST_MAX_REPLICAS="${QWEN_LOADTEST_MAX_REPLICAS:-8}"
+QWEN_LOADTEST_SEED_MIN_REPLICAS="${QWEN_LOADTEST_SEED_MIN_REPLICAS:-1}"
+QWEN_LOADTEST_SEED_MAX_REPLICAS="${QWEN_LOADTEST_SEED_MAX_REPLICAS:-3}"
+QWEN_LOADTEST_ELASTIC_MIN_REPLICAS="${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS:-0}"
+QWEN_LOADTEST_ELASTIC_MAX_REPLICAS="${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS:-7}"
 QWEN_LOADTEST_POLLING_INTERVAL="${QWEN_LOADTEST_POLLING_INTERVAL:-5}"
 QWEN_LOADTEST_COOLDOWN_PERIOD="${QWEN_LOADTEST_COOLDOWN_PERIOD:-60}"
 QWEN_LOADTEST_KEDA_THRESHOLD="${QWEN_LOADTEST_KEDA_THRESHOLD:-1}"
@@ -82,21 +75,15 @@ QWEN_LOADTEST_MEMORY_REQUEST="${QWEN_LOADTEST_MEMORY_REQUEST:-24Gi}"
 QWEN_LOADTEST_MEMORY_LIMIT="${QWEN_LOADTEST_MEMORY_LIMIT:-32Gi}"
 QWEN_LOADTEST_GPU_TYPE="${QWEN_LOADTEST_GPU_TYPE:-${GPU_TYPE:-}}"
 QWEN_LOADTEST_NODE_WORKLOAD_LABEL="${QWEN_LOADTEST_NODE_WORKLOAD_LABEL:-gpu-test}"
+QWEN_LOADTEST_SEED_NODE_ROLE_LABEL="${QWEN_LOADTEST_SEED_NODE_ROLE_LABEL:-${GPU_SEED_NODE_ROLE_LABEL:-seed}}"
+QWEN_LOADTEST_ELASTIC_NODE_ROLE_LABEL="${QWEN_LOADTEST_ELASTIC_NODE_ROLE_LABEL:-${GPU_ELASTIC_NODE_ROLE_LABEL:-elastic}}"
 QWEN_LOADTEST_TARGET_IMAGE="${QWEN_LOADTEST_TARGET_IMAGE:-}"
 QWEN_LOADTEST_SOURCE_IMAGE="${QWEN_LOADTEST_SOURCE_LOGIN_SERVER}/${QWEN_LOADTEST_SOURCE_IMAGE_REPOSITORY}:${QWEN_LOADTEST_SOURCE_IMAGE_TAG}"
 QWEN_LOADTEST_IMAGE_PULL_SECRET_NAME="${QWEN_LOADTEST_IMAGE_PULL_SECRET_NAME_OVERRIDE:-${QWEN_LOADTEST_IMAGE_PULL_SECRET_NAME:-qwen-loadtest-source-regcred}}"
-
-if [[ "${QWEN_LOADTEST_CERTIFICATE_NAME}" == "${QWEN_LOADTEST_NAME}" ]]; then
-  QWEN_LOADTEST_CERTIFICATE_NAME="${QWEN_LOADTEST_TLS_SECRET_NAME}"
-fi
-
-if [[ "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" == "aks-istio-ingress" ]]; then
-  QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE="${QWEN_LOADTEST_NAMESPACE}"
-fi
-
-if [[ "${QWEN_LOADTEST_GATEWAY_SELECTOR}" == "aks-istio-ingressgateway-external" ]]; then
-  QWEN_LOADTEST_GATEWAY_SELECTOR="${QWEN_LOADTEST_GATEWAY_NAME}"
-fi
+QWEN_LOADTEST_SEED_NAME="${QWEN_LOADTEST_SEED_NAME:-${QWEN_LOADTEST_NAME}-seed}"
+QWEN_LOADTEST_ELASTIC_NAME="${QWEN_LOADTEST_ELASTIC_NAME:-${QWEN_LOADTEST_NAME}-elastic}"
+QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME="${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME:-${QWEN_LOADTEST_SEED_NAME}}"
+QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME="${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME:-${QWEN_LOADTEST_ELASTIC_NAME}}"
 
 resolve_istio_revision() {
   local revision="${QWEN_LOADTEST_ISTIO_REVISION:-}"
@@ -115,6 +102,34 @@ resolve_istio_revision() {
 
   [[ -n "${revision}" ]] || fail "Unable to determine AKS managed Istio revision. Set QWEN_LOADTEST_ISTIO_REVISION or ensure ISTIO_REVISIONS_CSV is exported."
   printf '%s\n' "${revision}"
+}
+
+require_integer_range() {
+  local name="$1"
+  local value="$2"
+  local minimum="$3"
+  local maximum="$4"
+
+  [[ "${value}" =~ ^[0-9]+$ ]] || fail "${name} must be an integer, got: ${value}"
+  (( value >= minimum && value <= maximum )) || fail "${name} must be between ${minimum} and ${maximum}, got: ${value}"
+}
+
+wait_for_hpa() {
+  local scaledobject_name="$1"
+  local attempts="${2:-30}"
+  local attempt
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if kubectl get hpa -n "${QWEN_LOADTEST_NAMESPACE}" | grep -q "${scaledobject_name}"; then
+      return 0
+    fi
+
+    if [[ "${attempt}" == "${attempts}" ]]; then
+      fail "Timed out waiting for KEDA-generated HPA for ${scaledobject_name}"
+    fi
+
+    sleep 5
+  done
 }
 
 ensure_namespace_with_revision() {
@@ -344,6 +359,10 @@ is_repo_managed_keda_query() {
     return 0
   fi
 
+  if [[ "${query}" == *"istio_requests_total{"* && "${query}" == *"destination_service_name=\"${QWEN_LOADTEST_SERVICE_NAME}\""* ]]; then
+    return 0
+  fi
+
   if [[ "${query}" == *"istio_requests_total{"* && "${query}" == *"destination_workload=\"${QWEN_LOADTEST_NAME}\""* ]]; then
     return 0
   fi
@@ -353,6 +372,12 @@ is_repo_managed_keda_query() {
 
 [[ -n "${QWEN_LOADTEST_TARGET_IMAGE}" ]] || fail "QWEN_LOADTEST_TARGET_IMAGE is empty. Run 00-prepare/10-sync-qwen-model.sh first, or export QWEN_LOADTEST_TARGET_IMAGE explicitly."
 [[ -n "${QWEN_LOADTEST_GPU_TYPE}" ]] || fail "QWEN_LOADTEST_GPU_TYPE or GPU_TYPE is required"
+require_integer_range QWEN_LOADTEST_SEED_MIN_REPLICAS "${QWEN_LOADTEST_SEED_MIN_REPLICAS}" 1 3
+require_integer_range QWEN_LOADTEST_SEED_MAX_REPLICAS "${QWEN_LOADTEST_SEED_MAX_REPLICAS}" 1 3
+require_integer_range QWEN_LOADTEST_ELASTIC_MIN_REPLICAS "${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS}" 0 7
+require_integer_range QWEN_LOADTEST_ELASTIC_MAX_REPLICAS "${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS}" 1 7
+(( QWEN_LOADTEST_SEED_MIN_REPLICAS <= QWEN_LOADTEST_SEED_MAX_REPLICAS )) || fail "QWEN_LOADTEST_SEED_MIN_REPLICAS must be <= QWEN_LOADTEST_SEED_MAX_REPLICAS"
+(( QWEN_LOADTEST_ELASTIC_MIN_REPLICAS <= QWEN_LOADTEST_ELASTIC_MAX_REPLICAS )) || fail "QWEN_LOADTEST_ELASTIC_MIN_REPLICAS must be <= QWEN_LOADTEST_ELASTIC_MAX_REPLICAS"
 
 QWEN_LOADTEST_ISTIO_REVISION="$(resolve_istio_revision)"
 ensure_namespace_with_revision "${QWEN_LOADTEST_NAMESPACE}" "${QWEN_LOADTEST_ISTIO_REVISION}"
@@ -373,18 +398,20 @@ cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${QWEN_LOADTEST_NAME}
+  name: ${QWEN_LOADTEST_SEED_NAME}
   namespace: ${QWEN_LOADTEST_NAMESPACE}
 spec:
   progressDeadlineSeconds: 3600
-  replicas: ${QWEN_LOADTEST_MIN_REPLICAS}
+  replicas: ${QWEN_LOADTEST_SEED_MIN_REPLICAS}
   selector:
     matchLabels:
       app: ${QWEN_LOADTEST_NAME}
+      component: seed
   template:
     metadata:
       labels:
         app: ${QWEN_LOADTEST_NAME}
+        component: seed
     spec:
 ${image_pull_secrets_yaml}
       terminationGracePeriodSeconds: 30
@@ -411,6 +438,98 @@ ${image_pull_secrets_yaml}
                   - key: gputype
                     operator: In
                     values: ["${QWEN_LOADTEST_GPU_TYPE}"]
+                  - key: gpu-role
+                    operator: In
+                    values: ["${QWEN_LOADTEST_SEED_NODE_ROLE_LABEL}"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: ["${QWEN_LOADTEST_NAME}"]
+                  - key: component
+                    operator: In
+                    values: ["seed"]
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: ${QWEN_LOADTEST_NAME}
+          image: ${QWEN_LOADTEST_TARGET_IMAGE}
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: ${QWEN_LOADTEST_CONTAINER_PORT}
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: ${QWEN_LOADTEST_CPU_REQUEST}
+              memory: ${QWEN_LOADTEST_MEMORY_REQUEST}
+              nvidia.com/gpu: "${QWEN_LOADTEST_GPU_REQUEST}"
+            limits:
+              cpu: ${QWEN_LOADTEST_CPU_LIMIT}
+              memory: ${QWEN_LOADTEST_MEMORY_LIMIT}
+              nvidia.com/gpu: "${QWEN_LOADTEST_GPU_REQUEST}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${QWEN_LOADTEST_ELASTIC_NAME}
+  namespace: ${QWEN_LOADTEST_NAMESPACE}
+spec:
+  progressDeadlineSeconds: 3600
+  replicas: ${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS}
+  selector:
+    matchLabels:
+      app: ${QWEN_LOADTEST_NAME}
+      component: elastic
+  template:
+    metadata:
+      labels:
+        app: ${QWEN_LOADTEST_NAME}
+        component: elastic
+    spec:
+${image_pull_secrets_yaml}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: ${QWEN_LOADTEST_NODE_WORKLOAD_LABEL}
+          effect: NoSchedule
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["${QWEN_LOADTEST_NODE_WORKLOAD_LABEL}"]
+                  - key: gputype
+                    operator: In
+                    values: ["${QWEN_LOADTEST_GPU_TYPE}"]
+                  - key: gpu-role
+                    operator: In
+                    values: ["${QWEN_LOADTEST_ELASTIC_NODE_ROLE_LABEL}"]
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
@@ -463,6 +582,9 @@ spec:
       port: ${QWEN_LOADTEST_SERVICE_PORT}
       targetPort: http
 EOF
+
+kubectl delete deployment "${QWEN_LOADTEST_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete scaledobject.keda.sh "${QWEN_LOADTEST_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 
 kubectl delete gateway.networking.istio.io "${QWEN_LOADTEST_GATEWAY_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl delete virtualservice.networking.istio.io "${QWEN_LOADTEST_NAME}" -n "${QWEN_LOADTEST_NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
@@ -522,23 +644,26 @@ spec:
 EOF
 
 QWEN_LOADTEST_URL="https://${QWEN_LOADTEST_HOST}"
-default_qwen_keda_query="sum(increase(istio_requests_total{reporter=\"destination\",source_workload=\"${QWEN_LOADTEST_GATEWAY_SELECTOR}\",destination_workload=\"${QWEN_LOADTEST_NAME}\",destination_service_name=\"${QWEN_LOADTEST_SERVICE_NAME}\",response_code!~\"5..\"}[5m])) or vector(0)"
+default_qwen_keda_query="sum(increase(istio_requests_total{reporter=\"destination\",source_workload=\"${QWEN_LOADTEST_GATEWAY_SELECTOR}\",destination_service_name=\"${QWEN_LOADTEST_SERVICE_NAME}\",response_code!~\"5..\"}[5m])) or vector(0)"
 
 if is_repo_managed_keda_query "${QWEN_LOADTEST_KEDA_QUERY_OVERRIDE:-${QWEN_LOADTEST_KEDA_QUERY:-}}"; then
   QWEN_LOADTEST_KEDA_QUERY="${default_qwen_keda_query}"
 fi
 
+QWEN_LOADTEST_ELASTIC_KEDA_QUERY="${QWEN_LOADTEST_ELASTIC_KEDA_QUERY:-${QWEN_LOADTEST_KEDA_QUERY}}"
+QWEN_LOADTEST_SEED_KEDA_QUERY="${QWEN_LOADTEST_SEED_KEDA_QUERY:-clamp_min((${QWEN_LOADTEST_KEDA_QUERY}) - ${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS}, 0) or vector(0)}"
+
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: ${QWEN_LOADTEST_NAME}
+  name: ${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME}
   namespace: ${QWEN_LOADTEST_NAMESPACE}
 spec:
   scaleTargetRef:
-    name: ${QWEN_LOADTEST_NAME}
-  minReplicaCount: ${QWEN_LOADTEST_MIN_REPLICAS}
-  maxReplicaCount: ${QWEN_LOADTEST_MAX_REPLICAS}
+    name: ${QWEN_LOADTEST_ELASTIC_NAME}
+  minReplicaCount: ${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS}
+  maxReplicaCount: ${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS}
   pollingInterval: ${QWEN_LOADTEST_POLLING_INTERVAL}
   cooldownPeriod: ${QWEN_LOADTEST_COOLDOWN_PERIOD}
   advanced:
@@ -565,28 +690,71 @@ spec:
       metadata:
         serverAddress: ${MONITOR_WORKSPACE_QUERY_ENDPOINT}
         query: >-
-          ${QWEN_LOADTEST_KEDA_QUERY}
+          ${QWEN_LOADTEST_ELASTIC_KEDA_QUERY}
+        threshold: "${QWEN_LOADTEST_KEDA_THRESHOLD}"
+        activationThreshold: "${QWEN_LOADTEST_KEDA_ACTIVATION_THRESHOLD}"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME}
+  namespace: ${QWEN_LOADTEST_NAMESPACE}
+spec:
+  scaleTargetRef:
+    name: ${QWEN_LOADTEST_SEED_NAME}
+  minReplicaCount: ${QWEN_LOADTEST_SEED_MIN_REPLICAS}
+  maxReplicaCount: ${QWEN_LOADTEST_SEED_MAX_REPLICAS}
+  pollingInterval: ${QWEN_LOADTEST_POLLING_INTERVAL}
+  cooldownPeriod: ${QWEN_LOADTEST_COOLDOWN_PERIOD}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+  triggers:
+    - type: prometheus
+      metricType: AverageValue
+      authenticationRef:
+        name: ${QWEN_LOADTEST_KEDA_AUTH_NAME}
+        kind: ClusterTriggerAuthentication
+      metadata:
+        serverAddress: ${MONITOR_WORKSPACE_QUERY_ENDPOINT}
+        query: >-
+          ${QWEN_LOADTEST_SEED_KEDA_QUERY}
         threshold: "${QWEN_LOADTEST_KEDA_THRESHOLD}"
         activationThreshold: "${QWEN_LOADTEST_KEDA_ACTIVATION_THRESHOLD}"
 EOF
 
-kubectl rollout status deployment/${QWEN_LOADTEST_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
+kubectl rollout status deployment/${QWEN_LOADTEST_SEED_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
 
-for attempt in $(seq 1 30); do
-  if kubectl get hpa -n "${QWEN_LOADTEST_NAMESPACE}" | grep -q "${QWEN_LOADTEST_NAME}"; then
-    break
-  fi
+if (( QWEN_LOADTEST_ELASTIC_MIN_REPLICAS > 0 )); then
+  kubectl rollout status deployment/${QWEN_LOADTEST_ELASTIC_NAME} -n "${QWEN_LOADTEST_NAMESPACE}" --timeout=30m >/dev/null
+fi
 
-  if [[ "${attempt}" == "30" ]]; then
-    fail "Timed out waiting for KEDA-generated HPA for ${QWEN_LOADTEST_NAME}"
-  fi
-
-  sleep 5
-done
+wait_for_hpa "${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME}"
+wait_for_hpa "${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME}"
 
 write_generated_env QWEN_LOADTEST_NAMESPACE "${QWEN_LOADTEST_NAMESPACE}"
 write_generated_env QWEN_LOADTEST_NAME "${QWEN_LOADTEST_NAME}"
 write_generated_env QWEN_LOADTEST_SERVICE_NAME "${QWEN_LOADTEST_SERVICE_NAME}"
+write_generated_env QWEN_LOADTEST_SEED_NAME "${QWEN_LOADTEST_SEED_NAME}"
+write_generated_env QWEN_LOADTEST_ELASTIC_NAME "${QWEN_LOADTEST_ELASTIC_NAME}"
+write_generated_env QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME "${QWEN_LOADTEST_SEED_SCALEDOBJECT_NAME}"
+write_generated_env QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME "${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME}"
+write_generated_env QWEN_LOADTEST_SEED_MIN_REPLICAS "${QWEN_LOADTEST_SEED_MIN_REPLICAS}"
+write_generated_env QWEN_LOADTEST_SEED_MAX_REPLICAS "${QWEN_LOADTEST_SEED_MAX_REPLICAS}"
+write_generated_env QWEN_LOADTEST_ELASTIC_MIN_REPLICAS "${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS}"
+write_generated_env QWEN_LOADTEST_ELASTIC_MAX_REPLICAS "${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS}"
 write_generated_env QWEN_LOADTEST_HOST "${QWEN_LOADTEST_HOST}"
 write_generated_env QWEN_LOADTEST_URL "${QWEN_LOADTEST_URL}"
 write_generated_env QWEN_LOADTEST_GATEWAY_IP "${external_gateway_ip}"
@@ -602,13 +770,19 @@ write_generated_env QWEN_LOADTEST_KEDA_AUTH_NAME "${QWEN_LOADTEST_KEDA_AUTH_NAME
 write_generated_env QWEN_LOADTEST_IMAGE_PULL_SECRET_NAME "${QWEN_LOADTEST_IMAGE_PULL_SECRET_NAME}"
 write_generated_env QWEN_LOADTEST_ISTIO_REVISION "${QWEN_LOADTEST_ISTIO_REVISION}"
 write_generated_env QWEN_LOADTEST_KEDA_QUERY "${QWEN_LOADTEST_KEDA_QUERY}"
+write_generated_env QWEN_LOADTEST_ELASTIC_KEDA_QUERY "${QWEN_LOADTEST_ELASTIC_KEDA_QUERY}"
+write_generated_env QWEN_LOADTEST_SEED_KEDA_QUERY "${QWEN_LOADTEST_SEED_KEDA_QUERY}"
 
 log "Deployment completed"
 log "  namespace       : ${QWEN_LOADTEST_NAMESPACE}"
 log "  target image    : ${QWEN_LOADTEST_TARGET_IMAGE}"
+log "  seed deploy     : ${QWEN_LOADTEST_SEED_NAME} (${QWEN_LOADTEST_SEED_MIN_REPLICAS}-${QWEN_LOADTEST_SEED_MAX_REPLICAS}, on-demand)"
+log "  elastic deploy  : ${QWEN_LOADTEST_ELASTIC_NAME} (${QWEN_LOADTEST_ELASTIC_MIN_REPLICAS}-${QWEN_LOADTEST_ELASTIC_MAX_REPLICAS}, prefer spot)"
 log "  istio revision  : ${QWEN_LOADTEST_ISTIO_REVISION}"
 log "  gateway service : ${QWEN_LOADTEST_GATEWAY_SELECTOR}"
 log "  tls issuer      : ${QWEN_LOADTEST_CERT_ISSUER_NAME}"
 log "  url             : ${QWEN_LOADTEST_URL}"
 log "  gateway ip      : ${external_gateway_ip}"
-log "  keda query      : ${QWEN_LOADTEST_KEDA_QUERY}"
+log "  base query      : ${QWEN_LOADTEST_KEDA_QUERY}"
+log "  elastic query   : ${QWEN_LOADTEST_ELASTIC_KEDA_QUERY}"
+log "  seed query      : ${QWEN_LOADTEST_SEED_KEDA_QUERY}"
