@@ -31,6 +31,7 @@
 - Karpenter Managed Identity、Federated Credential、Azure RBAC
 - Karpenter Helm charts、AKSNodeClass、GPU NodePool
 - GPU Operator Helm chart、NVIDIADriver
+- Dragonfly Helm chart、containerd configurer
 
 ## 初始化文件
 
@@ -76,12 +77,16 @@ cp aks.env.sample aks.env
 - AKS 监控不只开启 monitor_metrics，还会创建 Managed Prometheus 的 DCR、DCRA，以及基础 recording rules。
 - AKS 默认开启 Azure Blob CSI Driver，对应 az aks create/update 的 --enable-blob-driver；如果走统一的根目录 aks.env，可把 AKS_ENABLE_BLOB_DRIVER 设为 false；如果手写 tfvar，则使用 Terraform 变量 blob_driver_enabled。
 - AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-27；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
-- 默认会启用 AKS managed Gateway API，并安装 cert-manager；创建的 `letsencrypt-staging` / `letsencrypt-prod` 两个 `ClusterIssuer` 使用 `gatewayHTTPRoute` solver，后续可以直接配合 annotated `Gateway` 自动签发证书。使用前需要在根目录 `aks.env` 中设置 `CERT_MANAGER_ACME_EMAIL`。
-- 默认会同时部署 AKS 托管 Istio internal / external ingress gateway。两组 gateway 的 HPA 副本范围分别由 istio_internal_ingress_gateway_min_replicas / max_replicas 和 istio_external_ingress_gateway_min_replicas / max_replicas 控制；如果想固定副本数，直接把对应 min 和 max 设成同一个值。
+- 默认会启用 AKS managed Gateway API，并安装 cert-manager；创建的 `letsencrypt-staging` / `letsencrypt-prod` 两个 `ClusterIssuer` 会继续保留给后续其他 workload 使用。使用前需要在根目录 `aks.env` 中设置 `CERT_MANAGER_ACME_EMAIL`。
+- AKS 托管 Istio internal / external ingress gateway 默认都关闭；需要时再通过统一的 istio_internal_ingress_gateway_enabled / istio_external_ingress_gateway_enabled 开关开启。开启后，两组 gateway 的 HPA 副本范围分别由 istio_internal_ingress_gateway_min_replicas / max_replicas 和 istio_external_ingress_gateway_min_replicas / max_replicas 控制；如果想固定副本数，直接把对应 min 和 max 设成同一个值。
 - AKS 托管 Istio 的 Gateway 资源选择器应分别使用 istio: aks-istio-ingressgateway-internal 和 istio: aks-istio-ingressgateway-external。
 - 默认会部署 anonymous 模式的 Kiali，并通过带 workload identity 的 Azure Monitor auth proxy 访问 Managed Prometheus，无需在集群内保存 Entra client secret。
 - 针对 Karpenter、GPU Operator、DCGM exporter 这类自定义指标，Terraform 安装脚本会额外下发 `azmonitoring.coreos.com/v1` 的 `ServiceMonitor` / `PodMonitor` 镜像对象，避免只有 `monitoring.coreos.com/v1` 资源时 Azure Managed Prometheus 不采集。
-- Terraform apply 也会自动创建 KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 cluster-scoped ClusterTriggerAuthentication，因此后续 qwen workload 不再依赖 shell 流程单独补 bootstrap。
+- Terraform apply 也会自动创建 KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 cluster-scoped ClusterTriggerAuthentication，供后续 04-workloads 下的 shell workload 直接复用。
+- Terraform 现在只负责平台层和通用组件安装；业务 workload 统一留在 04-workloads 目录通过 shell 脚本部署和销毁。
+- Karpenter 现在只保留两个 GPU NodePool：`gpu-spot-pool` 负责 elastic 容量，`gpu-ondemand-pool` 同时承担 baseline / fallback，并在没有 workload 时缩回 0 节点。
+- workload 调度统一使用 dedicated label/taint `scheduling.azure-gpu-demo/dedicated=<gpu_node_class>`，以及标准标签 `karpenter.sh/capacity-type`；不要在业务清单里直接依赖 `gpu-role`、`spot_pool` 或 NodePool 名称。
+- qwen loadtest 的 Gateway 默认使用 Azure internal LoadBalancer，并只保留 HTTP listener，避免公网暴露；内网验证仍然走完整的 Istio ingress 路径。
 - Kiali 保持内部 `ClusterIP`，不额外暴露入口；需要访问时，使用 `kubectl port-forward -n aks-istio-system svc/kiali 20001:20001`，然后打开 `http://127.0.0.1:20001`。
 - ASM 启用后，业务命名空间需要显式打 istio.io/rev=asm-X-Y 标签；不能使用 istio-injection=enabled。
 - 这一版 Terraform 会在 apply 阶段通过本机的 az、kubectl、helm、python3 执行集群内软件安装，职责已经与 shell 版本基本对齐。

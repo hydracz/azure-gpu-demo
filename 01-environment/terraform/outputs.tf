@@ -46,6 +46,14 @@ output "managed_gateway_api_enabled" {
   value = var.managed_gateway_api_enabled
 }
 
+output "istio_internal_ingress_gateway_enabled" {
+  value = var.istio_internal_ingress_gateway_enabled
+}
+
+output "istio_external_ingress_gateway_enabled" {
+  value = var.istio_external_ingress_gateway_enabled
+}
+
 output "monitor_workspace_query_endpoint" {
   value = azurerm_monitor_workspace.main.query_endpoint
 }

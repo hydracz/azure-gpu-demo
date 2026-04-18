@@ -18,9 +18,21 @@ source "${SCRIPT_DIR}/../../common.sh"
 load_env
 ensure_tooling
 
+: "${SYSTEM_POOL_NAME:=sysd4}"
+: "${KARPENTER_NAMESPACE:=kube-system}"
+: "${KARPENTER_SERVICE_ACCOUNT:=karpenter-sa}"
+: "${KARPENTER_IMAGE_REPO:=quay.io/hydracz/karpenter-controller}"
+: "${KARPENTER_IMAGE_REPOSITORY:=${KARPENTER_IMAGE_REPO}}"
+: "${KARPENTER_IMAGE_TAG:=v20260323-dev}"
+: "${GPU_SKU_NAME:=Standard_NC128lds_xl_RTXPRO6000BSE_v6}"
 GPU_NODE_IMAGE_FAMILY="${GPU_NODE_IMAGE_FAMILY:-Ubuntu2404}"
 GPU_OS_DISK_SIZE_GB="${GPU_OS_DISK_SIZE_GB:-1024}"
 GPU_ZONES="${GPU_ZONES:-${LOCATION}-1}"
+INSTALL_GPU_DRIVERS="${INSTALL_GPU_DRIVERS:-false}"
+CONSOLIDATE_AFTER="${CONSOLIDATE_AFTER:-10m}"
+SPOT_MAX_PRICE="${SPOT_MAX_PRICE:--1}"
+GPU_NODE_CLASS="${GPU_NODE_CLASS:-${GPU_NODE_WORKLOAD_LABEL:-gpu}}"
+GPU_NODE_SCHEDULING_KEY="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 ROLE_ASSIGNMENT_MAX_RETRIES="${ROLE_ASSIGNMENT_MAX_RETRIES:-6}"
 ROLE_ASSIGNMENT_RETRY_SECONDS="${ROLE_ASSIGNMENT_RETRY_SECONDS:-10}"
 
@@ -37,9 +49,9 @@ require_env \
   AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME LOCATION EXISTING_ACR_ID \
   KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_IDENTITY_NAME \
   KARPENTER_IMAGE_TAG KARPENTER_TARGET_IMAGE_REPOSITORY \
-  GPU_SKU_NAME GPU_TYPE INSTALL_GPU_DRIVERS \
+  GPU_SKU_NAME INSTALL_GPU_DRIVERS \
   CONSOLIDATE_AFTER SPOT_MAX_PRICE \
-  GPU_ZONES EXISTING_VNET_SUBNET_ID
+  GPU_ZONES EXISTING_VNET_SUBNET_ID GPU_NODE_CLASS
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
@@ -103,6 +115,7 @@ vnet_subnet_id="$(az vmss show \
 [[ "${vnet_subnet_id}" == "${EXISTING_VNET_SUBNET_ID}" ]] || fail "AKS is using subnet ${vnet_subnet_id}, but configured EXISTING_VNET_SUBNET_ID is ${EXISTING_VNET_SUBNET_ID}"
 vnet_id="$(az network vnet show --ids "${vnet_subnet_id%/subnets/*}" --query id -o tsv --only-show-errors)"
 [[ -n "${vnet_id}" ]] || fail "Unable to determine parent vnet id from subnet ${vnet_subnet_id}"
+gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY}"
 
 ssh_public_key="$(python3 - <<'PY' "${aks_json}"
 import json
@@ -396,51 +409,6 @@ spec:
   installGPUDrivers: ${INSTALL_GPU_DRIVERS}
 EOF
 
-# NodePool — Seed GPU (固定 on-demand 基线层)
-cat <<EOF | kubectl apply -f -
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: gpu-seed-pool
-  annotations:
-    kubernetes.io/description: "On-demand GPU seed pool - baseline workload pods land here first"
-spec:
-  weight: 50
-  template:
-    metadata:
-      labels:
-        workload: ${GPU_NODE_WORKLOAD_LABEL}
-        gputype: ${GPU_TYPE}
-        gpu-role: ${GPU_SEED_NODE_ROLE_LABEL}
-        spot_pool: "no"
-    spec:
-      requirements:
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: topology.kubernetes.io/zone
-          operator: In
-          values:
-${gpu_zones_yaml}
-        - key: kubernetes.io/arch
-          operator: In
-          values: ["amd64"]
-        - key: node.kubernetes.io/instance-type
-          operator: In
-          values: ["${GPU_SKU_NAME}"]
-      taints:
-        - key: workload
-          value: ${GPU_NODE_WORKLOAD_LABEL}
-          effect: NoSchedule
-      nodeClassRef:
-        group: karpenter.azure.com
-        kind: AKSNodeClass
-        name: gpu
-  disruption:
-    consolidationPolicy: WhenEmpty
-    consolidateAfter: ${CONSOLIDATE_AFTER}
-EOF
-
 # NodePool — Spot GPU (高权重, 优先使用)
 # 不设置 spec.limits，避免 Azure SKU 元数据中的 GPU 数与实际可用 GPU 数不一致时
 # 被 Karpenter 提前判定为 "all available instance types exceed limits"
@@ -456,10 +424,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: ${GPU_NODE_WORKLOAD_LABEL}
-        gputype: ${GPU_TYPE}
-        gpu-role: ${GPU_ELASTIC_NODE_ROLE_LABEL}
-        spot_pool: "yes"
+        ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
       annotations:
         karpenter.azure.com/spot-max-price: "${SPOT_MAX_PRICE}"
     spec:
@@ -478,8 +443,8 @@ ${gpu_zones_yaml}
           operator: In
           values: ["${GPU_SKU_NAME}"]
       taints:
-        - key: workload
-          value: ${GPU_NODE_WORKLOAD_LABEL}
+        - key: ${gpu_node_scheduling_key}
+          value: ${GPU_NODE_CLASS}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -490,23 +455,20 @@ ${gpu_zones_yaml}
     consolidateAfter: ${CONSOLIDATE_AFTER}
 EOF
 
-# NodePool — On-demand GPU (低权重, Spot 不可用时回退)
+# NodePool — On-demand GPU（统一承担 seed + fallback，并允许空闲时缩到 0）
 cat <<EOF | kubectl apply -f -
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:
   name: gpu-ondemand-pool
   annotations:
-    kubernetes.io/description: "On-demand GPU pool - fallback when Spot unavailable"
+    kubernetes.io/description: "On-demand GPU pool - seed and fallback capacity, scale from zero when idle"
 spec:
-  weight: 10
+  weight: 50
   template:
     metadata:
       labels:
-        workload: ${GPU_NODE_WORKLOAD_LABEL}
-        gputype: ${GPU_TYPE}
-        gpu-role: ${GPU_ELASTIC_NODE_ROLE_LABEL}
-        spot_pool: "no"
+        ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
     spec:
       requirements:
         - key: karpenter.sh/capacity-type
@@ -523,8 +485,8 @@ ${gpu_zones_yaml}
           operator: In
           values: ["${GPU_SKU_NAME}"]
       taints:
-        - key: workload
-          value: ${GPU_NODE_WORKLOAD_LABEL}
+        - key: ${gpu_node_scheduling_key}
+          value: ${GPU_NODE_CLASS}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -541,9 +503,10 @@ log "  GPU SKU          : ${GPU_SKU_NAME}"
 log "  Custom subnet    : ${vnet_subnet_id}"
 log "  GPU OS disk size : ${GPU_OS_DISK_SIZE_GB} GiB"
 log "  installGPUDrivers: ${INSTALL_GPU_DRIVERS}"
-log "  NodePools        : gpu-seed-pool (weight=50), gpu-spot-pool (weight=100), gpu-ondemand-pool (weight=10)"
+log "  NodePools        : gpu-spot-pool (weight=100, elastic preferred), gpu-ondemand-pool (weight=50, baseline + fallback)"
+log "  Scheduling key   : ${gpu_node_scheduling_key}=${GPU_NODE_CLASS}"
 log "  AKSNodeClass     : gpu (${GPU_NODE_IMAGE_FAMILY}, subnet=${vnet_subnet_id}, osDisk=${GPU_OS_DISK_SIZE_GB}GiB, installGPUDrivers=${INSTALL_GPU_DRIVERS})"
 log ""
 log "⚠ NOTE: Spot quota may be < 128 vCPU. If gpu-spot-pool cannot provision,"
-log "  Karpenter will fallback to gpu-ondemand-pool (on-demand)."
+log "  Karpenter will fallback to gpu-ondemand-pool, which keeps baseline capacity and also scales from zero when idle."
 kubectl get nodepools,aksnodeclasses

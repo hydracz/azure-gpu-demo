@@ -10,6 +10,10 @@ source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
+
+: "${APP_NAMESPACE:=gpu-test}"
+: "${APP_NAME:=gpu-probe}"
+
 require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME APP_NAMESPACE APP_NAME
 
 DESTROY_APP_NAMESPACE_WAIT_TIMEOUT="${DESTROY_APP_NAMESPACE_WAIT_TIMEOUT:-300}"

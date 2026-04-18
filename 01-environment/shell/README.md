@@ -9,9 +9,8 @@
 - 13-destroy-cert-manager.sh: 删除 cert-manager 和 Let's Encrypt ClusterIssuer。
 - 19-import-grafana-dashboards.sh: 把仓库内置的 Grafana 仪表板导入到当前 Azure Managed Grafana。
 - 11-delete-aks.sh: 删除 AKS。
-- 20-deploy-dragonfly.sh: 安装 Dragonfly；manager / scheduler 留在 system pool，seed-client 绑定到 gpu-role=seed 的 workload 节点，client DaemonSet 绑定到全部 workload GPU 节点。对于 Ubuntu2404 + NVIDIA toolkit 的 GPU 节点，不再依赖 dfinit 直接改主配置，而是通过独立的 containerd configurer DaemonSet 往 /etc/containerd/conf.d 和 /etc/containerd/certs.d 写入 drop-in / hosts.toml，使 Dragonfly 与 nvidia-container-toolkit 共存。
-- 21-warm-dragonfly-cache.sh: 在 seed workload 节点上预拉取大镜像，给后续 GPU 自动扩容提供 P2P 热缓存。
-- 22-destroy-dragonfly.sh: 卸载 Dragonfly，并清理预热用的 cache warmer DaemonSet。
+- 20-deploy-dragonfly.sh: 安装 Dragonfly；manager / scheduler 留在 system pool，seed-client 固定跑在 on-demand GPU 节点，client DaemonSet 绑定到全部 GPU 节点。对于 Ubuntu2404 + NVIDIA toolkit 的 GPU 节点，不再依赖 dfinit 直接改主配置，而是通过独立的 containerd configurer DaemonSet 往 /etc/containerd/conf.d 和 /etc/containerd/certs.d 写入 drop-in / hosts.toml，使 Dragonfly 与 nvidia-container-toolkit 共存。
+- 22-destroy-dragonfly.sh: 卸载 Dragonfly，并清理 containerd configurer 相关资源。
 - 15-deploy-karpenter.sh: 安装 Karpenter 并创建 GPU NodePool，只读取 00-prepare 已写入的镜像仓库和网络信息。
 - 16-destroy-karpenter.sh: 卸载 Karpenter。
 - 17-deploy-gpu-operator.sh: 安装 GPU Operator 并创建 NVIDIADriver，只读取 00-prepare 已写入的镜像仓库信息。
@@ -41,16 +40,9 @@ cp aks.env.sample aks.env
 
 运行这个 shell 流程之前，先完成仓库顶层的共享准备步骤；01 不会帮你补镜像同步或网络创建，只会消费并校验 .generated.env / aks.env 中已有结果。
 
-如果你要验证 Dragonfly 对大镜像冷启动的帮助，建议在把业务镜像同步到 ACR 后，再执行：
+把业务镜像同步到 ACR 后，首个 workload 的实际部署就是预热过程；后续新节点仍会优先从 Dragonfly peers 拿分片，而不是每次都完整回源 ACR。
 
-```bash
-./00-prepare/10-sync-qwen-model.sh
-./01-environment/shell/21-warm-dragonfly-cache.sh
-```
-
-这一步会把默认的 Qwen 大镜像预拉到 seed workload 节点上，让后续新节点优先从 Dragonfly peers 拿分片，而不是每次都完整回源 ACR。
-
-如果你要使用“seed 层 on-demand，elastic 层优先 spot，且新增 workload 节点自动加入 P2P”这套设计，当前 RTXPRO6000 / Karpenter 组合下，GPU workload 节点应保持 Ubuntu2404。仓库默认已经这样设置；不要把 GPU_NODE_IMAGE_FAMILY 改成 Ubuntu2204。
+如果你要使用“on-demand 同时承担 baseline / fallback、elastic 层优先 spot、且新增 workload 节点自动加入 P2P”这套设计，当前 RTXPRO6000 / Karpenter 组合下，GPU workload 节点应保持 Ubuntu2404。仓库默认已经这样设置；不要把 GPU_NODE_IMAGE_FAMILY 改成 Ubuntu2204。
 
 说明：10-create-aks.sh 现在会自动调用 12-deploy-cert-manager.sh，因此正常场景不需要单独执行 12；如果你只想重试证书平台安装，再单独运行 12 即可。
 
@@ -66,8 +58,8 @@ shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下
 
 - AKS managed Istio (`asm-1-27`)
 - AKS managed Gateway API
-- external ingress gateway
-- internal ingress gateway
+- external ingress gateway（默认关闭，可用统一开关开启）
+- internal ingress gateway（默认关闭，可用统一开关开启）
 - cert-manager
 - Let's Encrypt `ClusterIssuer`（staging / prod）
 - Azure Managed Grafana dashboard 导入（Istio workload + AKS GPU DCGM）

@@ -121,9 +121,20 @@ while IFS= read -r dashboard_file; do
 done < <(list_dashboard_files)
 
 log "Managed Grafana dashboards currently available:"
+dashboard_list_file="${tmp_dir}/dashboard-list.txt"
+set +e
 az grafana dashboard list \
   --name "${GRAFANA_NAME}" \
   --resource-group "${RESOURCE_GROUP}" \
   --query "[].title" \
   -o tsv \
-  --only-show-errors
+  --only-show-errors \
+  >"${dashboard_list_file}"
+dashboard_list_status=$?
+set -e
+
+if [[ ${dashboard_list_status} -eq 0 ]]; then
+  cat "${dashboard_list_file}"
+else
+  warn "Skipping dashboard list output because the Grafana endpoint timed out"
+fi

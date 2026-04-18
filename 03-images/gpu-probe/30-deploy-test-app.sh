@@ -10,12 +10,29 @@ source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
+
+: "${APP_NAMESPACE:=gpu-test}"
+: "${APP_NAME:=gpu-probe}"
+: "${APP_MIN_REPLICAS:=1}"
+: "${APP_MAX_REPLICAS:=2}"
+: "${APP_REQUEST_CPU:=1000m}"
+: "${APP_LIMIT_CPU:=2000m}"
+: "${APP_REQUEST_MEMORY:=4Gi}"
+: "${APP_LIMIT_MEMORY:=8Gi}"
+: "${APP_REQUEST_GPU:=1}"
+: "${GPU_NODE_SCHEDULING_KEY:=scheduling.azure-gpu-demo/dedicated}"
+
 require_env \
   AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME APP_NAMESPACE APP_NAME TEST_IMAGE_URI \
   APP_MIN_REPLICAS APP_MAX_REPLICAS APP_REQUEST_CPU APP_LIMIT_CPU \
-  APP_REQUEST_MEMORY APP_LIMIT_MEMORY APP_REQUEST_GPU GPU_TYPE
+  APP_REQUEST_MEMORY APP_LIMIT_MEMORY APP_REQUEST_GPU
 
 ensure_aks_kubeconfig
+gpu_node_class="$(resolve_gpu_node_class)"
+gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY}"
+gpu_node_sku_label_value="$(derive_gpu_node_sku_label_value)"
+
+[[ -n "${gpu_node_sku_label_value}" ]] || fail "Unable to determine karpenter.azure.com/sku-gpu-name label value from GPU_NODE_SKU_LABEL_VALUE or GPU_SKU_NAME"
 
 log "Deploying namespace ${APP_NAMESPACE} and GPU workload ${APP_NAME}"
 log "Using kubeconfig ${KUBECONFIG}"
@@ -55,9 +72,9 @@ spec:
       priorityClassName: ${APP_NAME}-priority
       terminationGracePeriodSeconds: 10
       tolerations:
-        - key: workload
+        - key: ${gpu_node_scheduling_key}
           operator: Equal
-          value: ${APP_NODE_WORKLOAD_LABEL}
+          value: ${gpu_node_class}
           effect: NoSchedule
         - key: kubernetes.azure.com/scalesetpriority
           operator: Equal
@@ -71,25 +88,22 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - key: workload
+                  - key: ${gpu_node_scheduling_key}
                     operator: In
-                    values: ["${APP_NODE_WORKLOAD_LABEL}"]
-                  - key: gputype
+                    values: ["${gpu_node_class}"]
+                  - key: karpenter.azure.com/sku-gpu-name
                     operator: In
-                    values: ["${GPU_TYPE}"]
+                    values: ["${gpu_node_sku_label_value}"]
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
+                  - key: ${gpu_node_scheduling_key}
+                    operator: In
+                    values: ["${gpu_node_class}"]
                   - key: karpenter.sh/capacity-type
                     operator: In
                     values: ["spot"]
-            - weight: 90
-              preference:
-                matchExpressions:
-                  - key: spot_pool
-                    operator: In
-                    values: ["yes"]
       containers:
         - name: probe
           image: ${TEST_IMAGE_URI}
@@ -167,7 +181,7 @@ else
   log ""
   log "Possible causes:"
   log "  1. Spot quota < 128 vCPU → check gpu-spot-pool status"
-  log "  2. On-demand quota insufficient → check gpu-ondemand-pool status"
+  log "  2. On-demand quota insufficient → check gpu-ondemand-pool status (seed/fallback)"
   log "  3. SKU not available in region → check az vm list-skus"
   log "  4. GPU driver plugin not ready → expected when installGPUDrivers=false"
   exit 1

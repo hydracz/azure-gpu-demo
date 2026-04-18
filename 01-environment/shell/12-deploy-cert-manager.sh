@@ -12,6 +12,8 @@ need_cmd kubectl
 need_cmd python3
 
 : "${CERT_MANAGER_ENABLED:=true}"
+: "${CERT_MANAGER_STAGING_ISSUER_NAME:=letsencrypt-staging}"
+: "${CERT_MANAGER_PROD_ISSUER_NAME:=letsencrypt-prod}"
 
 if [[ "${CERT_MANAGER_ENABLED}" != "true" ]]; then
   log "CERT_MANAGER_ENABLED=false, skipping cert-manager deployment"

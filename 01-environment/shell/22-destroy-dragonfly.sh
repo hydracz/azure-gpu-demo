@@ -10,12 +10,14 @@ load_env
 ensure_tooling
 ensure_aks_kubeconfig
 
-require_env DRAGONFLY_NAMESPACE DRAGONFLY_RELEASE_NAME DRAGONFLY_CACHE_WARMER_NAME
+: "${DRAGONFLY_NAMESPACE:=dragonfly-system}"
+: "${DRAGONFLY_RELEASE_NAME:=dragonfly}"
+
+require_env DRAGONFLY_NAMESPACE DRAGONFLY_RELEASE_NAME
 
 DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME="${DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME:-dragonfly-containerd-configurer}"
 DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME="${DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME:-dragonfly-containerd-config}"
 
-kubectl -n "${DRAGONFLY_NAMESPACE}" delete daemonset "${DRAGONFLY_CACHE_WARMER_NAME}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl -n "${DRAGONFLY_NAMESPACE}" delete daemonset "${DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl -n "${DRAGONFLY_NAMESPACE}" delete configmap "${DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME}" --ignore-not-found >/dev/null 2>&1 || true
 

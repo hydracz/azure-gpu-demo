@@ -10,6 +10,9 @@ load_env
 need_cmd az
 
 existing_subnet_id="${EXISTING_VNET_SUBNET_ID:-}"
+VNET_ADDRESS_PREFIX="${VNET_ADDRESS_PREFIX:-10.240.0.0/16}"
+AKS_SUBNET_NAME="${AKS_SUBNET_NAME:-snet-aks-underlay}"
+AKS_SUBNET_ADDRESS_PREFIX="${AKS_SUBNET_ADDRESS_PREFIX:-10.240.0.0/20}"
 
 if [[ -n "${existing_subnet_id}" ]]; then
   require_env AZ_SUBSCRIPTION_ID LOCATION EXISTING_VNET_SUBNET_ID

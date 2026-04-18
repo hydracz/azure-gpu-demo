@@ -35,6 +35,8 @@ GPU_DRIVER_SOURCE_REPOSITORY="${GPU_DRIVER_SOURCE_REPOSITORY:-docker.io/yingeli}
 GPU_DRIVER_IMAGE="${GPU_DRIVER_IMAGE:-driver}"
 GPU_DRIVER_VERSION="${GPU_DRIVER_VERSION:-580.105.08}"
 GPU_DRIVER_REQUIRE_MATCHING_NODES="${GPU_DRIVER_REQUIRE_MATCHING_NODES:-false}"
+GPU_NODE_CLASS="${GPU_NODE_CLASS:-${GPU_NODE_WORKLOAD_LABEL:-gpu}}"
+GPU_NODE_SCHEDULING_KEY="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 GPU_OPERATOR_DEP_CHART_DIR="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery"
 GPU_OPERATOR_DEP_CHART_PACKAGE="${GPU_OPERATOR_CHART_DIR}/charts/node-feature-discovery-chart-0.18.2.tgz"
 
@@ -82,9 +84,9 @@ ensure_gpu_operator_controller() {
     --set "daemonsets.tolerations[0].key=nvidia.com/gpu" \
     --set "daemonsets.tolerations[0].operator=Exists" \
     --set "daemonsets.tolerations[0].effect=NoSchedule" \
-    --set "daemonsets.tolerations[1].key=workload" \
+    --set "daemonsets.tolerations[1].key=${GPU_NODE_SCHEDULING_KEY}" \
     --set "daemonsets.tolerations[1].operator=Equal" \
-    --set "daemonsets.tolerations[1].value=${GPU_NODE_WORKLOAD_LABEL}" \
+    --set "daemonsets.tolerations[1].value=${GPU_NODE_CLASS}" \
     --set "daemonsets.tolerations[1].effect=NoSchedule" \
     --set "daemonsets.tolerations[2].key=kubernetes.azure.com/scalesetpriority" \
     --set "daemonsets.tolerations[2].operator=Equal" \
@@ -134,7 +136,7 @@ ensure_gpu_operator_controller
 log "Validating GPU nodes for selector ${EXPECTED_DRIVER_SELECTOR}"
 matching_gpu_nodes="$(kubectl get nodes -l "${EXPECTED_DRIVER_SELECTOR}" -o name 2>/dev/null || true)"
 if [[ -z "${matching_gpu_nodes}" ]]; then
-  kubectl get nodes -L workload,gputype,karpenter.azure.com/sku-gpu-name,node.kubernetes.io/instance-type 2>/dev/null || true
+  kubectl get nodes -L ${GPU_NODE_SCHEDULING_KEY},karpenter.sh/capacity-type,karpenter.azure.com/sku-gpu-name,node.kubernetes.io/instance-type 2>/dev/null || true
   if [[ "${GPU_DRIVER_REQUIRE_MATCHING_NODES}" == "true" ]]; then
     fail "No GPU nodes match ${EXPECTED_DRIVER_SELECTOR}; adjust 15-deploy-karpenter.sh labels or the NVIDIADriver selector before continuing"
   fi
@@ -151,7 +153,8 @@ fi
 resolved_driver_image="${GPU_DRIVER_TARGET_REPOSITORY}/${GPU_DRIVER_IMAGE}:${GPU_DRIVER_VERSION}"
 resolved_driver_image_note=""
 if [[ -n "${gpu_node_os_id}" && -n "${gpu_node_os_version}" ]]; then
-  resolved_driver_image="${resolved_driver_image}-${gpu_node_os_id,,}${gpu_node_os_version}"
+  gpu_node_os_id_lower="$(printf '%s' "${gpu_node_os_id}" | tr '[:upper:]' '[:lower:]')"
+  resolved_driver_image="${resolved_driver_image}-${gpu_node_os_id_lower}${gpu_node_os_version}"
 else
   resolved_driver_image_note="Will resolve to an OS-specific image tag after a matching GPU node joins the cluster."
 fi
@@ -177,9 +180,9 @@ metadata:
   name: ${GPU_DRIVER_CR_NAME}
 spec:
   tolerations:
-    - key: "workload"
+    - key: "${GPU_NODE_SCHEDULING_KEY}"
       operator: "Equal"
-      value: "${GPU_NODE_WORKLOAD_LABEL}"
+      value: "${GPU_NODE_CLASS}"
       effect: "NoSchedule"
     - key: "kubernetes.azure.com/scalesetpriority"
       operator: "Equal"

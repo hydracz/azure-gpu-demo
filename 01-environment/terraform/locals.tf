@@ -24,6 +24,7 @@ locals {
   karpenter_chart_dir          = "${path.module}/../charts/karpenter"
   karpenter_crd_chart_dir      = "${path.module}/../charts/karpenter-crd"
   gpu_operator_chart_dir       = "${path.module}/../charts/gpu-operator"
+  dragonfly_chart_file         = "${path.module}/../charts/dragonfly-1.6.13.tgz"
   cert_manager_manifest        = "${path.module}/../charts/cert-manager.yaml"
   cert_manager_issuer_template = "${path.module}/../charts/letencrypt-signer.yaml"
   grafana_dashboard_dir        = "${path.module}/../grafana/dashboards"
@@ -40,6 +41,7 @@ locals {
   gpu_operator_chart_hash = sha256(join("", [
     for file in sort(fileset(local.gpu_operator_chart_dir, "**")) : filesha256("${local.gpu_operator_chart_dir}/${file}")
   ]))
+  dragonfly_chart_hash              = filesha256(local.dragonfly_chart_file)
   cert_manager_manifest_hash        = filesha256(local.cert_manager_manifest)
   cert_manager_issuer_template_hash = filesha256(local.cert_manager_issuer_template)
   grafana_dashboard_hash = sha256(join("", [

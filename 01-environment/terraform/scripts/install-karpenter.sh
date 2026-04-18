@@ -4,27 +4,47 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 
-if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${SHARED_ENV_FILE}"
-  set +a
-fi
+required_vars=(
+  KUBECONFIG_FILE
+  AZURE_SUBSCRIPTION_ID
+  RESOURCE_GROUP
+  LOCATION
+  CLUSTER_NAME
+  AKS_ENDPOINT
+  SYSTEM_POOL_NAME
+  KARPENTER_NAMESPACE
+  KARPENTER_SERVICE_ACCOUNT
+  KARPENTER_CLIENT_ID
+  KARPENTER_CHART_DIR
+  KARPENTER_CRD_CHART_DIR
+  KARPENTER_TARGET_IMAGE_REPOSITORY
+  KARPENTER_IMAGE_TAG
+  EXISTING_VNET_SUBNET_ID
+  AZURE_NODE_RESOURCE_GROUP
+  KUBELET_IDENTITY_CLIENT_ID
+  NODE_IDENTITIES
+  NETWORK_PLUGIN
+  NETWORK_PLUGIN_MODE
+  NETWORK_POLICY
+  SSH_PUBLIC_KEY
+  GPU_NODE_IMAGE_FAMILY
+  GPU_OS_DISK_SIZE_GB
+  INSTALL_GPU_DRIVERS
+  GPU_ZONES_CSV
+  GPU_SKU_NAME
+  SPOT_MAX_PRICE
+  CONSOLIDATE_AFTER
+  GPU_NODE_CLASS
+)
+
+source_shared_env_preserving_current "${SHARED_ENV_FILE:-}" "${required_vars[@]}"
 
 need_cmd helm
 need_cmd kubectl
 need_cmd python3
 need_cmd az
 
-for required_var in \
-  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP LOCATION CLUSTER_NAME AKS_ENDPOINT SYSTEM_POOL_NAME \
-  KARPENTER_NAMESPACE KARPENTER_SERVICE_ACCOUNT KARPENTER_CLIENT_ID KARPENTER_CHART_DIR \
-  KARPENTER_CRD_CHART_DIR KARPENTER_TARGET_IMAGE_REPOSITORY KARPENTER_IMAGE_TAG EXISTING_VNET_SUBNET_ID \
-  AZURE_NODE_RESOURCE_GROUP KUBELET_IDENTITY_CLIENT_ID NODE_IDENTITIES NETWORK_PLUGIN \
-  NETWORK_PLUGIN_MODE NETWORK_POLICY SSH_PUBLIC_KEY GPU_NODE_IMAGE_FAMILY GPU_OS_DISK_SIZE_GB \
-  INSTALL_GPU_DRIVERS GPU_ZONES_CSV GPU_SKU_NAME GPU_TYPE SPOT_MAX_PRICE CONSOLIDATE_AFTER \
-  GPU_NODE_WORKLOAD_LABEL
-do
+for required_var in "${required_vars[@]}"; do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
 
@@ -33,6 +53,7 @@ done
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
+gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 
 bootstrap_secret_name="$(kubectl get secrets -n kube-system -o go-template='{{range .items}}{{if eq .type "bootstrap.kubernetes.io/token"}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | head -n1)"
 [[ -n "${bootstrap_secret_name}" ]] || fail "No bootstrap token secret found in kube-system"
@@ -98,8 +119,16 @@ log "Installing karpenter-crd from ${KARPENTER_CRD_CHART_DIR}"
 helm upgrade --install karpenter-crd \
   "${KARPENTER_CRD_CHART_DIR}" \
   --namespace "${KARPENTER_NAMESPACE}" \
-  --create-namespace \
-  --wait
+  --create-namespace
+
+for crd_name in \
+  aksnodeclasses.karpenter.azure.com \
+  nodeclaims.karpenter.sh \
+  nodeoverlays.karpenter.sh \
+  nodepools.karpenter.sh
+do
+  wait_for_crd "${crd_name}" 30
+done
 
 log "Installing karpenter from ${KARPENTER_CHART_DIR}"
 helm upgrade --install karpenter \
@@ -114,11 +143,10 @@ helm upgrade --install karpenter \
   --set "settings.clusterName=${CLUSTER_NAME}" \
   --set "settings.clusterEndpoint=${AKS_ENDPOINT}" \
   --set "replicas=1" \
-  --wait \
   --timeout 5m
 
 log "Waiting for Karpenter deployment rollout"
-kubectl -n "${KARPENTER_NAMESPACE}" rollout status deploy/karpenter --timeout=5m
+wait_for_deployment_rollout "${KARPENTER_NAMESPACE}" karpenter 30 10
 
 log "Applying Azure Monitor ServiceMonitor mirror for Karpenter"
 KUBECONFIG_FILE="${KUBECONFIG_FILE}" \
@@ -152,9 +180,7 @@ spec:
   template:
     metadata:
       labels:
-        workload: ${GPU_NODE_WORKLOAD_LABEL}
-        gputype: ${GPU_TYPE}
-        spot_pool: "yes"
+        ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
       annotations:
         karpenter.azure.com/spot-max-price: "${SPOT_MAX_PRICE}"
     spec:
@@ -173,8 +199,8 @@ ${gpu_zones_yaml}
           operator: In
           values: ["${GPU_SKU_NAME}"]
       taints:
-        - key: workload
-          value: ${GPU_NODE_WORKLOAD_LABEL}
+        - key: ${gpu_node_scheduling_key}
+          value: ${GPU_NODE_CLASS}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -191,15 +217,13 @@ kind: NodePool
 metadata:
   name: gpu-ondemand-pool
   annotations:
-    kubernetes.io/description: "On-demand GPU pool - fallback when Spot unavailable"
+    kubernetes.io/description: "On-demand GPU pool - seed and fallback capacity, scale from zero when idle"
 spec:
-  weight: 10
+  weight: 50
   template:
     metadata:
       labels:
-        workload: ${GPU_NODE_WORKLOAD_LABEL}
-        gputype: ${GPU_TYPE}
-        spot_pool: "no"
+        ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
     spec:
       requirements:
         - key: karpenter.sh/capacity-type
@@ -216,8 +240,8 @@ ${gpu_zones_yaml}
           operator: In
           values: ["${GPU_SKU_NAME}"]
       taints:
-        - key: workload
-          value: ${GPU_NODE_WORKLOAD_LABEL}
+        - key: ${gpu_node_scheduling_key}
+          value: ${GPU_NODE_CLASS}
           effect: NoSchedule
       nodeClassRef:
         group: karpenter.azure.com
@@ -229,3 +253,4 @@ ${gpu_zones_yaml}
 EOF
 
 log "Karpenter deployment completed"
+log "  Scheduling key : ${gpu_node_scheduling_key}=${GPU_NODE_CLASS}"

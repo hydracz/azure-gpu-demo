@@ -22,3 +22,9 @@ validation-artifacts/
 *.tfvar
 *.auto.tfvars.json
 *.tfbackend
+__pycache__/
+*.pyc
+
+##
+test-results/*
+*.log

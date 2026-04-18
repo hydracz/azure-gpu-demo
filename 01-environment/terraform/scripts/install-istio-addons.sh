@@ -4,27 +4,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/common.sh"
 
-if [[ -n "${SHARED_ENV_FILE:-}" && -f "${SHARED_ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${SHARED_ENV_FILE}"
-  set +a
-fi
+required_vars=(
+  KUBECONFIG_FILE
+  AZURE_SUBSCRIPTION_ID
+  RESOURCE_GROUP
+  CLUSTER_NAME
+  ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED
+  ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED
+  ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS
+  ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS
+  ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS
+  ISTIO_EXTERNAL_INGRESS_GATEWAY_MAX_REPLICAS
+  ISTIO_KIALI_ENABLED
+  ISTIO_KIALI_NAMESPACE
+  ISTIO_KIALI_REPLICAS
+  ISTIO_KIALI_VIEW_ONLY_MODE
+  ISTIO_KIALI_OPERATOR_CHART_VERSION
+  ISTIO_KIALI_PROMETHEUS_RETENTION_PERIOD
+  ISTIO_KIALI_PROMETHEUS_SCRAPE_INTERVAL
+  ISTIO_KIALI_PROXY_SERVICE_NAME
+  ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME
+  MONITOR_WORKSPACE_QUERY_ENDPOINT
+)
+
+source_shared_env_preserving_current "${SHARED_ENV_FILE:-}" "${required_vars[@]}" ISTIO_KIALI_PROXY_CLIENT_ID ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY ISTIO_KIALI_TARGET_IMAGE_NAME ISTIO_KIALI_PROXY_TARGET_IMAGE ISTIO_KIALI_IMAGE_TAG
 
 need_cmd az
 need_cmd helm
 need_cmd kubectl
 
-for required_var in \
-  KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME \
-  ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED \
-  ISTIO_INTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_INTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
-  ISTIO_EXTERNAL_INGRESS_GATEWAY_MIN_REPLICAS ISTIO_EXTERNAL_INGRESS_GATEWAY_MAX_REPLICAS \
-  ISTIO_KIALI_ENABLED ISTIO_KIALI_NAMESPACE ISTIO_KIALI_REPLICAS \
-  ISTIO_KIALI_VIEW_ONLY_MODE ISTIO_KIALI_OPERATOR_CHART_VERSION \
-  ISTIO_KIALI_PROMETHEUS_RETENTION_PERIOD ISTIO_KIALI_PROMETHEUS_SCRAPE_INTERVAL \
-  ISTIO_KIALI_PROXY_SERVICE_NAME ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME MONITOR_WORKSPACE_QUERY_ENDPOINT
-do
+for required_var in "${required_vars[@]}"; do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
 
@@ -162,6 +171,8 @@ spec:
       app: ${ISTIO_KIALI_PROXY_SERVICE_NAME}
   template:
     metadata:
+      annotations:
+        copilot.github.com/workload-identity-client-id: "${ISTIO_KIALI_PROXY_CLIENT_ID}"
       labels:
         app: ${ISTIO_KIALI_PROXY_SERVICE_NAME}
         azure.workload.identity/use: "true"
@@ -208,7 +219,9 @@ spec:
       targetPort: 8082
 EOF
 
-  kubectl rollout status deployment/${ISTIO_KIALI_PROXY_SERVICE_NAME} -n "${ISTIO_KIALI_NAMESPACE}" --timeout=5m
+  kubectl rollout restart deployment/${ISTIO_KIALI_PROXY_SERVICE_NAME} -n ${ISTIO_KIALI_NAMESPACE} >/dev/null
+
+  wait_for_deployment_rollout "${ISTIO_KIALI_NAMESPACE}" "${ISTIO_KIALI_PROXY_SERVICE_NAME}" 30 10
 }
 
 install_kiali() {
@@ -226,10 +239,9 @@ install_kiali() {
     --set "image.repo=${ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY}" \
     --set "image.tag=${ISTIO_KIALI_IMAGE_TAG}" \
     --set allowAdHocKialiImage=true \
-    --wait \
     --timeout 10m >/dev/null
 
-  kubectl wait --for=condition=Established crd/kialis.kiali.io --timeout=2m >/dev/null
+  wait_for_crd kialis.kiali.io 30
 
   log "Applying Kiali custom resource"
   cat <<EOF | kubectl apply -f - >/dev/null
@@ -268,8 +280,7 @@ spec:
 EOF
 
   wait_for_kiali_success "${ISTIO_KIALI_NAMESPACE}"
-  wait_for_deployment "${ISTIO_KIALI_NAMESPACE}" kiali
-  kubectl rollout status deployment/kiali -n "${ISTIO_KIALI_NAMESPACE}" --timeout=10m
+  wait_for_deployment_rollout "${ISTIO_KIALI_NAMESPACE}" kiali 60 10
 }
 
 if [[ "${ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED}" == "true" ]]; then

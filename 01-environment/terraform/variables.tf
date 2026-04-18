@@ -134,13 +134,13 @@ variable "istio_revisions" {
 variable "istio_internal_ingress_gateway_enabled" {
   description = "Whether to enable the AKS managed Istio internal ingress gateway"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "istio_external_ingress_gateway_enabled" {
   description = "Whether to enable the AKS managed Istio external ingress gateway"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "managed_gateway_api_enabled" {
@@ -380,16 +380,10 @@ variable "gpu_sku_name" {
   default     = "Standard_NC128lds_xl_RTXPRO6000BSE_v6"
 }
 
-variable "gpu_type" {
-  description = "GPU type label applied to Karpenter nodes"
+variable "gpu_node_class" {
+  description = "Class value used by the shared GPU dedicated label and taint"
   type        = string
-  default     = "rtxpro6000-bse"
-}
-
-variable "gpu_node_workload_label" {
-  description = "Workload label value applied to GPU nodes and used by GPU workloads"
-  type        = string
-  default     = "gpu-test"
+  default     = "gpu"
 }
 
 variable "gpu_zones" {
@@ -430,6 +424,12 @@ variable "spot_max_price" {
 
 variable "gpu_operator_enabled" {
   description = "Whether to deploy the vendored NVIDIA GPU Operator"
+  type        = bool
+  default     = true
+}
+
+variable "dragonfly_enabled" {
+  description = "Whether to install Dragonfly and configure workload nodes for P2P image pulls"
   type        = bool
   default     = true
 }

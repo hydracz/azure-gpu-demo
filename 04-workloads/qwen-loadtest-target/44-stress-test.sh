@@ -56,7 +56,8 @@ ensure_aks_kubeconfig
 
 QWEN_LOADTEST_NAMESPACE="${QWEN_LOADTEST_NAMESPACE:-qwen-loadtest}"
 QWEN_LOADTEST_NAME="${QWEN_LOADTEST_NAME:-qwen-loadtest-target}"
-QWEN_LOADTEST_GATEWAY_NAME="${QWEN_LOADTEST_GATEWAY_NAME:-qwen-loadtest-external}"
+QWEN_LOADTEST_GATEWAY_NAME="${QWEN_LOADTEST_GATEWAY_NAME:-qwen-loadtest-internal}"
+QWEN_LOADTEST_GATEWAY_SCHEME="${QWEN_LOADTEST_GATEWAY_SCHEME:-http}"
 QWEN_LOADTEST_TEST_MODE="${QWEN_LOADTEST_TEST_MODE:-predict}"
 QWEN_LOADTEST_TEST_PATH="${QWEN_LOADTEST_TEST_PATH:-/predict}"
 QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY="${QWEN_LOADTEST_TEST_VIA_CLUSTER_GATEWAY:-true}"
@@ -76,6 +77,10 @@ QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT="${QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT:-90
 QWEN_LOADTEST_STRESS_STEPS="${QWEN_LOADTEST_STRESS_STEPS:-6}"
 QWEN_LOADTEST_STRESS_CFG="${QWEN_LOADTEST_STRESS_CFG:-2.5}"
 QWEN_LOADTEST_STRESS_RUN_NAME="${QWEN_LOADTEST_STRESS_RUN_NAME:-qwen-stress-curl}"
+QWEN_LOADTEST_STRESS_POD_READY_TIMEOUT_SECONDS="${QWEN_LOADTEST_STRESS_POD_READY_TIMEOUT_SECONDS:-600}"
+
+gateway_scheme="${QWEN_LOADTEST_GATEWAY_SCHEME}"
+gateway_port="80"
 
 refresh_qwen_loadtest_gateway_access "${QWEN_LOADTEST_GATEWAY_WORKLOAD_NAMESPACE}" "${QWEN_LOADTEST_GATEWAY_SELECTOR}" "${QWEN_LOADTEST_NAME}"
 
@@ -125,19 +130,19 @@ while [ "$(date +%s)" -lt "$end_ts" ]; do
     (
       if [ "$TEST_MODE" = 'predict' ]; then
         curl -sS --connect-timeout 10 --max-time "$REQUEST_TIMEOUT" \
-          --resolve "$TARGET_HOST:443:$TARGET_IP" \
+          --resolve "$TARGET_HOST:$TARGET_PORT:$TARGET_IP" \
           -F image=@/tmp/tiny.png \
           -F prompt="pressure-${round}-${req}" \
           -F steps="$TEST_STEPS" \
           -F cfg="$TEST_CFG" \
-          "https://$TARGET_HOST$TARGET_PATH" \
+          "$TARGET_SCHEME://$TARGET_HOST$TARGET_PATH" \
           -o "/tmp/qwen-body-${req}.json" \
           -w '%{http_code} %{time_total}' \
           > "/tmp/qwen-meta-${req}.txt" 2> "/tmp/qwen-curl-${req}.err" || printf '000 0\n' > "/tmp/qwen-meta-${req}.txt"
       else
         curl -sS --connect-timeout 10 --max-time "$REQUEST_TIMEOUT" \
-          --resolve "$TARGET_HOST:443:$TARGET_IP" \
-          "https://$TARGET_HOST$TARGET_PATH" \
+          --resolve "$TARGET_HOST:$TARGET_PORT:$TARGET_IP" \
+          "$TARGET_SCHEME://$TARGET_HOST$TARGET_PATH" \
           -o "/tmp/qwen-body-${req}.json" \
           -w '%{http_code} %{time_total}' \
           > "/tmp/qwen-meta-${req}.txt" 2> "/tmp/qwen-curl-${req}.err" || printf '000 0\n' > "/tmp/qwen-meta-${req}.txt"
@@ -190,6 +195,7 @@ EOF
 
 log "Running ${QWEN_LOADTEST_STRESS_DURATION_SECONDS}s stress test against ${QWEN_LOADTEST_HOST}${QWEN_LOADTEST_TEST_PATH} via ${gateway_target_ip}"
 log "  mode        : ${QWEN_LOADTEST_TEST_MODE}"
+log "  scheme      : ${gateway_scheme}"
 log "  concurrency : ${QWEN_LOADTEST_STRESS_CONCURRENCY}"
 log "  timeout     : ${QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT}"
 if [[ "${QWEN_LOADTEST_TEST_MODE}" == "predict" ]]; then
@@ -204,6 +210,8 @@ kubectl -n "${QWEN_LOADTEST_NAMESPACE}" run "${QWEN_LOADTEST_STRESS_RUN_NAME}" \
   --overrides="${stress_test_overrides}" \
   --env=TARGET_HOST="${QWEN_LOADTEST_HOST}" \
   --env=TARGET_IP="${gateway_target_ip}" \
+  --env=TARGET_PORT="${gateway_port}" \
+  --env=TARGET_SCHEME="${gateway_scheme}" \
   --env=TARGET_PATH="${QWEN_LOADTEST_TEST_PATH}" \
   --env=TEST_MODE="${QWEN_LOADTEST_TEST_MODE}" \
   --env=TEST_CONCURRENCY="${QWEN_LOADTEST_STRESS_CONCURRENCY}" \
@@ -211,9 +219,32 @@ kubectl -n "${QWEN_LOADTEST_NAMESPACE}" run "${QWEN_LOADTEST_STRESS_RUN_NAME}" \
   --env=TEST_DURATION_SECONDS="${QWEN_LOADTEST_STRESS_DURATION_SECONDS}" \
   --env=TEST_STEPS="${QWEN_LOADTEST_STRESS_STEPS}" \
   --env=TEST_CFG="${QWEN_LOADTEST_STRESS_CFG}" \
-  --attach \
-  --rm \
-  --command -- sh -ceu "${pod_script}"
+  --command -- sh -ceu "${pod_script}" >/dev/null
+
+kubectl -n "${QWEN_LOADTEST_NAMESPACE}" wait \
+  --for=condition=Ready \
+  "pod/${QWEN_LOADTEST_STRESS_RUN_NAME}" \
+  --timeout="${QWEN_LOADTEST_STRESS_POD_READY_TIMEOUT_SECONDS}s" >/dev/null
+
+set +e
+kubectl -n "${QWEN_LOADTEST_NAMESPACE}" logs -f "pod/${QWEN_LOADTEST_STRESS_RUN_NAME}"
+stress_logs_exit=$?
+set -e
+
+stress_pod_completion_timeout_seconds=$((QWEN_LOADTEST_STRESS_DURATION_SECONDS + QWEN_LOADTEST_STRESS_REQUEST_TIMEOUT + 600))
+if ! kubectl -n "${QWEN_LOADTEST_NAMESPACE}" wait \
+  --for=jsonpath='{.status.phase}'=Succeeded \
+  "pod/${QWEN_LOADTEST_STRESS_RUN_NAME}" \
+  --timeout="${stress_pod_completion_timeout_seconds}s" >/dev/null; then
+  kubectl -n "${QWEN_LOADTEST_NAMESPACE}" describe pod "${QWEN_LOADTEST_STRESS_RUN_NAME}" >&2 || true
+  fail "Stress pod ${QWEN_LOADTEST_STRESS_RUN_NAME} did not complete successfully"
+fi
+
+kubectl -n "${QWEN_LOADTEST_NAMESPACE}" delete pod "${QWEN_LOADTEST_STRESS_RUN_NAME}" --ignore-not-found >/dev/null 2>&1 || true
+
+if (( stress_logs_exit != 0 )); then
+  warn "kubectl logs -f exited with status ${stress_logs_exit} after the stress pod completed"
+fi
 
 log "Current deployment status"
 kubectl -n "${QWEN_LOADTEST_NAMESPACE}" get deploy,pod,svc,hpa,scaledobject

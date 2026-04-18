@@ -17,7 +17,7 @@ resource "null_resource" "install_gpu_operator" {
     gpu_driver_image                  = var.gpu_driver_image
     gpu_driver_version                = var.gpu_driver_version
     gpu_driver_require_matching_nodes = tostring(var.gpu_driver_require_matching_nodes)
-    gpu_node_workload_label           = var.gpu_node_workload_label
+    gpu_node_class                    = var.gpu_node_class
     install_script_sha                = filesha256("${path.module}/scripts/install-gpu-operator.sh")
     uninstall_script_sha              = filesha256("${path.module}/scripts/uninstall-gpu-operator.sh")
     helper_script_sha                 = filesha256("${path.module}/scripts/common.sh")
@@ -41,7 +41,7 @@ resource "null_resource" "install_gpu_operator" {
       GPU_DRIVER_IMAGE                  = self.triggers.gpu_driver_image
       GPU_DRIVER_VERSION                = self.triggers.gpu_driver_version
       GPU_DRIVER_REQUIRE_MATCHING_NODES = self.triggers.gpu_driver_require_matching_nodes
-      GPU_NODE_WORKLOAD_LABEL           = self.triggers.gpu_node_workload_label
+      GPU_NODE_CLASS                    = self.triggers.gpu_node_class
     }
   }
 

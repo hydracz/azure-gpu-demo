@@ -544,7 +544,8 @@ node-feature-discovery:
     - key: nvidia.com/gpu
       operator: Exists
       effect: NoSchedule
-    - key: "workload"
+    # Repo scripts override this with the active GPU dedicated taint.
+    - key: "scheduling.azure-gpu-demo/dedicated"
       operator: "Equal"
       value: "gpu-test"
       effect: "NoSchedule"

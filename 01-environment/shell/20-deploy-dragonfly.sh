@@ -9,6 +9,32 @@ source "${SCRIPT_DIR}/../../common.sh"
 load_env
 ensure_tooling
 
+: "${DRAGONFLY_ENABLED:=true}"
+: "${DRAGONFLY_NAMESPACE:=dragonfly-system}"
+: "${DRAGONFLY_RELEASE_NAME:=dragonfly}"
+: "${DRAGONFLY_CHART_VERSION:=1.6.13}"
+: "${SYSTEM_POOL_NAME:=sysd4}"
+: "${SYSTEM_NODE_COUNT:=3}"
+: "${DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME:=dragonfly-containerd-configurer}"
+: "${DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME:=dragonfly-containerd-config}"
+: "${DRAGONFLY_MANAGER_REPLICAS:=1}"
+: "${DRAGONFLY_SCHEDULER_REPLICAS:=1}"
+: "${DRAGONFLY_SEED_CLIENT_REPLICAS:=1}"
+: "${DRAGONFLY_MANAGER_IMAGE_REPOSITORY:=dragonflyoss/manager}"
+: "${DRAGONFLY_MANAGER_IMAGE_TAG:=v2.4.1}"
+: "${DRAGONFLY_SCHEDULER_IMAGE_REPOSITORY:=dragonflyoss/scheduler}"
+: "${DRAGONFLY_SCHEDULER_IMAGE_TAG:=v2.4.1}"
+: "${DRAGONFLY_CLIENT_IMAGE_REPOSITORY:=dragonflyoss/client}"
+: "${DRAGONFLY_CLIENT_IMAGE_TAG:=v1.2.9}"
+: "${DRAGONFLY_BUSYBOX_IMAGE_REPOSITORY:=busybox}"
+: "${DRAGONFLY_BUSYBOX_IMAGE_TAG:=latest}"
+: "${DRAGONFLY_MYSQL_IMAGE_REPOSITORY:=bitnamilegacy/mysql}"
+: "${DRAGONFLY_MYSQL_IMAGE_TAG:=8.0.36-debian-12-r10}"
+: "${DRAGONFLY_REDIS_IMAGE_REPOSITORY:=bitnamilegacy/redis}"
+: "${DRAGONFLY_REDIS_IMAGE_TAG:=7.2.5-debian-12-r0}"
+: "${DRAGONFLY_CONTAINERD_REGISTRIES_CSV:=docker.io,ghcr.io,nvcr.io}"
+: "${GPU_NODE_CLASS:=$(resolve_gpu_node_class)}"
+
 [[ "${DRAGONFLY_ENABLED:-true}" == "true" ]] || fail "DRAGONFLY_ENABLED=false; set it to true before deploying Dragonfly"
 
 DRAGONFLY_CHART_FILE="${ROOT_DIR}/01-environment/charts/dragonfly-${DRAGONFLY_CHART_VERSION}.tgz"
@@ -18,7 +44,7 @@ require_env \
   AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME ACR_LOGIN_SERVER \
   DRAGONFLY_NAMESPACE DRAGONFLY_RELEASE_NAME SYSTEM_POOL_NAME SYSTEM_NODE_COUNT \
   DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME DRAGONFLY_CONTAINERD_CONFIG_CONFIGMAP_NAME \
-  DRAGONFLY_WORKLOAD_LABEL DRAGONFLY_SEED_NODE_ROLE_LABEL \
+  GPU_NODE_CLASS \
   DRAGONFLY_MANAGER_REPLICAS DRAGONFLY_SCHEDULER_REPLICAS DRAGONFLY_SEED_CLIENT_REPLICAS \
   DRAGONFLY_MANAGER_IMAGE_REPOSITORY DRAGONFLY_MANAGER_IMAGE_TAG \
   DRAGONFLY_SCHEDULER_IMAGE_REPOSITORY DRAGONFLY_SCHEDULER_IMAGE_TAG \
@@ -33,6 +59,7 @@ require_env \
 
 ensure_aks_kubeconfig
 kubectl create namespace "${DRAGONFLY_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 
 system_node_selector_yaml="$(cat <<EOF
     kubernetes.azure.com/mode: system
@@ -41,23 +68,24 @@ EOF
 )"
 
 workload_node_selector_yaml="$(cat <<EOF
-    workload: ${DRAGONFLY_WORKLOAD_LABEL}
+    ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
 EOF
 )"
 
 seed_workload_node_selector_yaml="$(cat <<EOF
-    workload: ${DRAGONFLY_WORKLOAD_LABEL}
-    gpu-role: ${DRAGONFLY_SEED_NODE_ROLE_LABEL}
+    ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
+    karpenter.sh/capacity-type: on-demand
 EOF
 )"
 
-workload_tolerations_yaml="$(cat <<'EOF'
+workload_tolerations_yaml="$(cat <<EOF
+    - key: ${gpu_node_scheduling_key}
+      operator: Equal
+      value: ${GPU_NODE_CLASS}
+      effect: NoSchedule
     - key: kubernetes.azure.com/scalesetpriority
       operator: Equal
       value: spot
-      effect: NoSchedule
-    - key: workload
-      operator: Exists
       effect: NoSchedule
     - key: nvidia.com/gpu
       operator: Exists
@@ -321,14 +349,15 @@ spec:
         app: ${DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME}
     spec:
       nodeSelector:
-        workload: ${DRAGONFLY_WORKLOAD_LABEL}
+        ${gpu_node_scheduling_key}: ${GPU_NODE_CLASS}
       tolerations:
+        - key: ${gpu_node_scheduling_key}
+          operator: Equal
+          value: ${GPU_NODE_CLASS}
+          effect: NoSchedule
         - key: kubernetes.azure.com/scalesetpriority
           operator: Equal
           value: spot
-          effect: NoSchedule
-        - key: workload
-          operator: Exists
           effect: NoSchedule
         - key: nvidia.com/gpu
           operator: Exists
@@ -401,8 +430,9 @@ log "  namespace     : ${DRAGONFLY_NAMESPACE}"
 log "  release       : ${DRAGONFLY_RELEASE_NAME}"
 log "  image registry: ${ACR_LOGIN_SERVER}"
 log "  system ctrl   : ${SYSTEM_POOL_NAME}"
-log "  seed peers    : workload=${DRAGONFLY_WORKLOAD_LABEL}, gpu-role=${DRAGONFLY_SEED_NODE_ROLE_LABEL}, replicas=${DRAGONFLY_SEED_CLIENT_REPLICAS}"
-log "  client scope  : workload=${DRAGONFLY_WORKLOAD_LABEL}"
+log "  gpu selector  : ${gpu_node_scheduling_key}=${GPU_NODE_CLASS}"
+log "  seed peers    : ${gpu_node_scheduling_key}=${GPU_NODE_CLASS}, capacity-type=on-demand, replicas=${DRAGONFLY_SEED_CLIENT_REPLICAS}"
+log "  client scope  : ${gpu_node_scheduling_key}=${GPU_NODE_CLASS}"
 log "  runtime hook  : ${DRAGONFLY_CONTAINERD_CONFIG_DAEMONSET_NAME} via /etc/containerd/conf.d + /etc/containerd/certs.d"
 log ""
 kubectl -n "${DRAGONFLY_NAMESPACE}" get pods -o wide

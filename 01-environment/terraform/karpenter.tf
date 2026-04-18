@@ -123,8 +123,7 @@ resource "null_resource" "install_karpenter" {
     install_gpu_drivers        = tostring(var.install_gpu_drivers)
     gpu_zones_csv              = join(",", local.gpu_zones)
     gpu_sku_name               = var.gpu_sku_name
-    gpu_type                   = var.gpu_type
-    gpu_node_workload_label    = var.gpu_node_workload_label
+    gpu_node_class             = var.gpu_node_class
     spot_max_price             = var.spot_max_price
     consolidate_after          = var.consolidate_after
     install_script_sha         = filesha256("${path.module}/scripts/install-karpenter.sh")
@@ -165,8 +164,7 @@ resource "null_resource" "install_karpenter" {
       INSTALL_GPU_DRIVERS               = self.triggers.install_gpu_drivers
       GPU_ZONES_CSV                     = self.triggers.gpu_zones_csv
       GPU_SKU_NAME                      = self.triggers.gpu_sku_name
-      GPU_TYPE                          = self.triggers.gpu_type
-      GPU_NODE_WORKLOAD_LABEL           = self.triggers.gpu_node_workload_label
+      GPU_NODE_CLASS                    = self.triggers.gpu_node_class
       SPOT_MAX_PRICE                    = self.triggers.spot_max_price
       CONSOLIDATE_AFTER                 = self.triggers.consolidate_after
     }

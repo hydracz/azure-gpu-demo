@@ -16,6 +16,7 @@ source "${SCRIPT_DIR}/scripts/dragonfly-image-sync.sh"
 IMAGE_SYNC_TOOL_OVERRIDE="${IMAGE_SYNC_TOOL:-}"
 
 load_env
+: "${DRAGONFLY_ENABLED:=true}"
 
 if [[ -n "${IMAGE_SYNC_TOOL_OVERRIDE}" ]]; then
   export IMAGE_SYNC_TOOL="${IMAGE_SYNC_TOOL_OVERRIDE}"

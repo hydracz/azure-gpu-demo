@@ -19,7 +19,7 @@ need_cmd kubectl
 for required_var in \
   KUBECONFIG_FILE AZURE_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME GPU_OPERATOR_CHART_DIR \
   GPU_OPERATOR_NAMESPACE GPU_DRIVER_CR_NAME GPU_DRIVER_NODE_SELECTOR_KEY GPU_DRIVER_NODE_SELECTOR_VALUE \
-  GPU_DRIVER_IMAGE GPU_DRIVER_VERSION GPU_DRIVER_REQUIRE_MATCHING_NODES GPU_NODE_WORKLOAD_LABEL \
+  GPU_DRIVER_IMAGE GPU_DRIVER_VERSION GPU_DRIVER_REQUIRE_MATCHING_NODES GPU_NODE_CLASS \
   GPU_DRIVER_TARGET_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY \
   GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY \
   GPU_OPERATOR_MIRROR_NFD_REPOSITORY
@@ -31,6 +31,7 @@ done
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
+gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 
 run_with_retry() {
   local max_attempts="$1"
@@ -90,18 +91,30 @@ helm upgrade --install gpu-operator \
   --set daemonsets.tolerations[0].key=nvidia.com/gpu \
   --set daemonsets.tolerations[0].operator=Exists \
   --set daemonsets.tolerations[0].effect=NoSchedule \
-  --set daemonsets.tolerations[1].key=workload \
+  --set daemonsets.tolerations[1].key=${gpu_node_scheduling_key} \
   --set daemonsets.tolerations[1].operator=Equal \
-  --set daemonsets.tolerations[1].value=${GPU_NODE_WORKLOAD_LABEL} \
+  --set daemonsets.tolerations[1].value=${GPU_NODE_CLASS} \
   --set daemonsets.tolerations[1].effect=NoSchedule \
   --set daemonsets.tolerations[2].key=kubernetes.azure.com/scalesetpriority \
   --set daemonsets.tolerations[2].operator=Equal \
   --set daemonsets.tolerations[2].value=spot \
   --set daemonsets.tolerations[2].effect=NoSchedule \
-  --wait \
   --timeout 10m
 
-kubectl -n "${GPU_OPERATOR_NAMESPACE}" rollout status deploy/gpu-operator --timeout=5m 2>/dev/null || true
+for crd_name in \
+  clusterpolicies.nvidia.com \
+  nvidiadrivers.nvidia.com \
+  nodefeatures.nfd.k8s-sigs.io \
+  nodefeaturegroups.nfd.k8s-sigs.io \
+  nodefeaturerules.nfd.k8s-sigs.io
+do
+  wait_for_crd "${crd_name}" 30
+done
+
+wait_for_deployment_rollout "${GPU_OPERATOR_NAMESPACE}" gpu-operator 60 10
+wait_for_deployment_rollout "${GPU_OPERATOR_NAMESPACE}" gpu-operator-node-feature-discovery-master 60 10
+wait_for_deployment_rollout "${GPU_OPERATOR_NAMESPACE}" gpu-operator-node-feature-discovery-gc 60 10
+wait_for_daemonset_rollout "${GPU_OPERATOR_NAMESPACE}" gpu-operator-node-feature-discovery-worker 60 10
 
 log "Applying Azure Monitor ServiceMonitor mirrors for GPU Operator"
 KUBECONFIG_FILE="${KUBECONFIG_FILE}" \
@@ -130,9 +143,9 @@ metadata:
   name: ${GPU_DRIVER_CR_NAME}
 spec:
   tolerations:
-    - key: "workload"
+    - key: "${gpu_node_scheduling_key}"
       operator: "Equal"
-      value: "${GPU_NODE_WORKLOAD_LABEL}"
+      value: "${GPU_NODE_CLASS}"
       effect: "NoSchedule"
     - key: "kubernetes.azure.com/scalesetpriority"
       operator: "Equal"

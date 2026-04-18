@@ -2,6 +2,8 @@
 
 write_gpu_operator_mirror_values_file() {
   local target_file="$1"
+  local gpu_node_class="${GPU_NODE_CLASS:-${GPU_NODE_WORKLOAD_LABEL:-gpu}}"
+  local gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
 
   [[ -n "${GPU_DRIVER_TARGET_REPOSITORY:-}" ]] || fail "GPU_DRIVER_TARGET_REPOSITORY is required"
   [[ -n "${GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY:-}" ]] || fail "GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY is required"
@@ -53,5 +55,26 @@ ccManager:
 node-feature-discovery:
   image:
     repository: ${GPU_OPERATOR_MIRROR_NFD_REPOSITORY}
+  worker:
+    tolerations:
+    - key: "node-role.kubernetes.io/master"
+      operator: "Equal"
+      value: ""
+      effect: "NoSchedule"
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Equal"
+      value: ""
+      effect: "NoSchedule"
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: "${gpu_node_scheduling_key}"
+      operator: "Equal"
+      value: "${gpu_node_class}"
+      effect: "NoSchedule"
+    - key: "kubernetes.azure.com/scalesetpriority"
+      operator: "Equal"
+      value: "spot"
+      effect: "NoSchedule"
 EOF
 }

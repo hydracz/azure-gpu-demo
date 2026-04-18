@@ -10,6 +10,10 @@ source "${SCRIPT_DIR}/../../common.sh"
 
 load_env
 ensure_tooling
+
+: "${TEST_IMAGE_REPOSITORY:=aks/gpu-probe}"
+: "${TEST_IMAGE_TAG:=latest}"
+
 require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP ACR_NAME TEST_IMAGE_REPOSITORY TEST_IMAGE_TAG
 
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors

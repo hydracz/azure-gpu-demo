@@ -17,6 +17,8 @@ refresh_aks_kubeconfig
 
 kubectl delete nodepool "${KARPENTER_SPOT_POOL_NAME:-gpu-spot-pool}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl delete nodepool "${KARPENTER_OD_POOL_NAME:-gpu-ondemand-pool}" --ignore-not-found >/dev/null 2>&1 || true
+# Clean up the legacy pool name as well so AKSNodeClass deletion is not blocked by stale references.
+kubectl delete nodepool "${KARPENTER_SEED_POOL_NAME:-gpu-seed-pool}" --ignore-not-found >/dev/null 2>&1 || true
 kubectl delete aksnodeclass "${KARPENTER_NODECLASS_NAME:-gpu}" --ignore-not-found >/dev/null 2>&1 || true
 helm uninstall "${KARPENTER_RELEASE_NAME:-karpenter}" --namespace "${KARPENTER_NAMESPACE}" >/dev/null 2>&1 || true
 helm uninstall "${KARPENTER_CRD_RELEASE:-karpenter-crd}" --namespace "${KARPENTER_NAMESPACE}" >/dev/null 2>&1 || true

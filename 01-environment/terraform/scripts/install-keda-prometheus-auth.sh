@@ -145,6 +145,6 @@ if [[ "${restart_required}" == "true" ]]; then
   kubectl rollout restart deployment/${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME} -n ${KEDA_PROMETHEUS_OPERATOR_NAMESPACE} >/dev/null
 fi
 
-kubectl rollout status deployment/${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME} -n ${KEDA_PROMETHEUS_OPERATOR_NAMESPACE} --timeout=10m >/dev/null
+wait_for_deployment_rollout "${KEDA_PROMETHEUS_OPERATOR_NAMESPACE}" "${KEDA_PROMETHEUS_OPERATOR_DEPLOYMENT_NAME}" 60 10
 
 log "Shared KEDA Prometheus auth ready: ${KEDA_PROMETHEUS_AUTH_NAME}"

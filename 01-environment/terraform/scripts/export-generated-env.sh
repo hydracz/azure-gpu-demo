@@ -30,6 +30,8 @@ mapping = {
     "cluster_fqdn": ["CLUSTER_FQDN"],
     "cluster_endpoint": ["CLUSTER_ENDPOINT", "AKS_ENDPOINT"],
     "managed_gateway_api_enabled": ["AKS_MANAGED_GATEWAY_API_ENABLED"],
+    "istio_internal_ingress_gateway_enabled": ["ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED"],
+    "istio_external_ingress_gateway_enabled": ["ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED"],
     "service_mesh_mode": ["SERVICE_MESH_MODE"],
     "service_mesh_revisions": ["SERVICE_MESH_REVISIONS_CSV"],
     "monitor_workspace_query_endpoint": ["MONITOR_WORKSPACE_QUERY_ENDPOINT"],
