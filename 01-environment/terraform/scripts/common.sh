@@ -21,11 +21,39 @@ need_cmd() {
 
 with_kubeconfig_lock() {
   local lock_dir="$1.lock"
+  local pid_file="${lock_dir}/pid"
   local attempt
+  local owner_pid
+  local lock_mtime
+  local now_ts
+  local max_stale_age_seconds="${KUBECONFIG_LOCK_STALE_AGE_SECONDS:-600}"
 
   for attempt in $(seq 1 120); do
     if mkdir "${lock_dir}" 2>/dev/null; then
+      printf '%s\n' "$$" >"${pid_file}" 2>/dev/null || true
       return 0
+    fi
+
+    if [[ -f "${pid_file}" ]]; then
+      owner_pid="$(tr -d '[:space:]' <"${pid_file}" 2>/dev/null || true)"
+      if [[ -n "${owner_pid}" ]] && [[ ! ${owner_pid} =~ ^[0-9]+$ ]]; then
+        owner_pid=""
+      fi
+
+      if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
+        warn "Removing stale kubeconfig lock ${lock_dir} owned by dead pid ${owner_pid}"
+        rm -rf "${lock_dir}"
+        continue
+      fi
+    fi
+
+    if lock_mtime="$(stat -f '%m' "${lock_dir}" 2>/dev/null)"; then
+      now_ts="$(date +%s)"
+      if [[ "${lock_mtime}" =~ ^[0-9]+$ ]] && (( now_ts - lock_mtime > max_stale_age_seconds )); then
+        warn "Removing stale kubeconfig lock ${lock_dir} older than ${max_stale_age_seconds}s"
+        rm -rf "${lock_dir}"
+        continue
+      fi
     fi
 
     sleep 1
@@ -148,7 +176,7 @@ refresh_aks_kubeconfig() {
   local lock_dir
   lock_dir="${KUBECONFIG_FILE}.lock"
   tmp_kubeconfig="$(mktemp "${KUBECONFIG_FILE}.tmp.XXXXXX")"
-  trap 'rm -f '"'"'${tmp_kubeconfig}'"'"'; rmdir '"'"'${lock_dir}'"'"' 2>/dev/null || true' EXIT
+  trap 'rm -f '"'"'${tmp_kubeconfig}'"'"'; rm -rf '"'"'${lock_dir}'"'"' 2>/dev/null || true' EXIT
   az account set --subscription "${AZURE_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
 
   if az aks get-credentials \
@@ -173,7 +201,7 @@ refresh_aks_kubeconfig() {
 
   mv "${tmp_kubeconfig}" "${KUBECONFIG_FILE}"
   trap - EXIT
-  rmdir "${lock_dir}" 2>/dev/null || true
+  rm -rf "${lock_dir}" 2>/dev/null || true
 
   export KUBECONFIG="${KUBECONFIG_FILE}"
 }
