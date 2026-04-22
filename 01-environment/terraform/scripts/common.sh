@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+COMMON_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${COMMON_SCRIPT_DIR}/../../.." && pwd)"
+GENERATED_ENV_FILE="${REPO_ROOT}/.generated.env"
+
 log() {
   printf '[terraform] %s\n' "$*"
 }
@@ -17,49 +21,6 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
-}
-
-with_kubeconfig_lock() {
-  local lock_dir="$1.lock"
-  local pid_file="${lock_dir}/pid"
-  local attempt
-  local owner_pid
-  local lock_mtime
-  local now_ts
-  local max_stale_age_seconds="${KUBECONFIG_LOCK_STALE_AGE_SECONDS:-600}"
-
-  for attempt in $(seq 1 120); do
-    if mkdir "${lock_dir}" 2>/dev/null; then
-      printf '%s\n' "$$" >"${pid_file}" 2>/dev/null || true
-      return 0
-    fi
-
-    if [[ -f "${pid_file}" ]]; then
-      owner_pid="$(tr -d '[:space:]' <"${pid_file}" 2>/dev/null || true)"
-      if [[ -n "${owner_pid}" ]] && [[ ! ${owner_pid} =~ ^[0-9]+$ ]]; then
-        owner_pid=""
-      fi
-
-      if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
-        warn "Removing stale kubeconfig lock ${lock_dir} owned by dead pid ${owner_pid}"
-        rm -rf "${lock_dir}"
-        continue
-      fi
-    fi
-
-    if lock_mtime="$(stat -f '%m' "${lock_dir}" 2>/dev/null)"; then
-      now_ts="$(date +%s)"
-      if [[ "${lock_mtime}" =~ ^[0-9]+$ ]] && (( now_ts - lock_mtime > max_stale_age_seconds )); then
-        warn "Removing stale kubeconfig lock ${lock_dir} older than ${max_stale_age_seconds}s"
-        rm -rf "${lock_dir}"
-        continue
-      fi
-    fi
-
-    sleep 1
-  done
-
-  fail "Timed out waiting for kubeconfig lock: ${lock_dir}"
 }
 
 ensure_parent_dir() {
@@ -160,8 +121,64 @@ rewrite_kubeconfig_server_with_public_dns() {
   log "Rewrote kubeconfig server for ${cluster_name} to ${resolved_ip} with TLS server name ${server_host}"
 }
 
+kubeconfig_is_usable() {
+  local kubeconfig_file="$1"
+
+  [[ -s "${kubeconfig_file}" ]] || return 1
+
+  KUBECONFIG="${kubeconfig_file}" kubectl cluster-info >/dev/null 2>&1
+}
+
+write_generated_env() {
+  local key="$1"
+  local value="$2"
+
+  mkdir -p "$(dirname "${GENERATED_ENV_FILE}")"
+  touch "${GENERATED_ENV_FILE}"
+
+  if grep -q "^${key}=" "${GENERATED_ENV_FILE}"; then
+    python3 - "${GENERATED_ENV_FILE}" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+
+def shell_double_quote(raw: str) -> str:
+    return raw.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
+lines = path.read_text(encoding='utf-8').splitlines()
+updated = []
+for line in lines:
+    if line.startswith(f"{key}="):
+        updated.append(f'{key}="{shell_double_quote(value)}"')
+    else:
+        updated.append(line)
+path.write_text("\n".join(updated) + "\n", encoding='utf-8')
+PY
+  else
+    python3 - "${GENERATED_ENV_FILE}" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+
+def shell_double_quote(raw: str) -> str:
+    return raw.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
+with path.open('a', encoding='utf-8') as handle:
+    handle.write(f'{key}="{shell_double_quote(value)}"\n')
+PY
+  fi
+}
+
 refresh_aks_kubeconfig() {
-  need_cmd az
+  local fetched_mode=""
+  local stale_kubeconfigs=()
+
   need_cmd kubectl
 
   [[ -n "${KUBECONFIG_FILE:-}" ]] || fail "KUBECONFIG_FILE is required"
@@ -170,40 +187,60 @@ refresh_aks_kubeconfig() {
   [[ -n "${CLUSTER_NAME:-}" ]] || fail "CLUSTER_NAME is required"
 
   ensure_parent_dir "${KUBECONFIG_FILE}"
-  with_kubeconfig_lock "${KUBECONFIG_FILE}"
 
-  local tmp_kubeconfig
-  local lock_dir
-  lock_dir="${KUBECONFIG_FILE}.lock"
-  tmp_kubeconfig="$(mktemp "${KUBECONFIG_FILE}.tmp.XXXXXX")"
-  trap 'rm -f '"'"'${tmp_kubeconfig}'"'"'; rm -rf '"'"'${lock_dir}'"'"' 2>/dev/null || true' EXIT
+  if [[ -e "${KUBECONFIG_FILE}.lock" ]]; then
+    warn "Removing legacy kubeconfig lock ${KUBECONFIG_FILE}.lock"
+    rm -rf "${KUBECONFIG_FILE}.lock"
+  fi
+
+  shopt -s nullglob
+  stale_kubeconfigs=("${KUBECONFIG_FILE}.tmp."*)
+  shopt -u nullglob
+  if (( ${#stale_kubeconfigs[@]} > 0 )); then
+    warn "Removing stale kubeconfig temp files for ${KUBECONFIG_FILE}"
+    rm -f -- "${stale_kubeconfigs[@]}"
+  fi
+
+  if kubeconfig_is_usable "${KUBECONFIG_FILE}"; then
+    export AKS_KUBECONFIG_FILE="${KUBECONFIG_FILE}"
+    export KUBECONFIG="${KUBECONFIG_FILE}"
+    write_generated_env AKS_KUBECONFIG_FILE "${KUBECONFIG_FILE}"
+    log "Reusing existing kubeconfig ${KUBECONFIG_FILE} for ${CLUSTER_NAME}"
+    return 0
+  fi
+
+  need_cmd az
+
   az account set --subscription "${AZURE_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
 
   if az aks get-credentials \
     --resource-group "${RESOURCE_GROUP}" \
     --name "${CLUSTER_NAME}" \
-    --file "${tmp_kubeconfig}" \
+    --file "${KUBECONFIG_FILE}" \
     --overwrite-existing \
     --admin \
     --only-show-errors >/dev/null 2>&1; then
-    log "Fetched AKS admin kubeconfig for ${CLUSTER_NAME}"
+    fetched_mode="admin"
   else
     warn "Falling back to user kubeconfig for ${CLUSTER_NAME}"
-    az aks get-credentials \
+    if az aks get-credentials \
       --resource-group "${RESOURCE_GROUP}" \
       --name "${CLUSTER_NAME}" \
-      --file "${tmp_kubeconfig}" \
+      --file "${KUBECONFIG_FILE}" \
       --overwrite-existing \
-      --only-show-errors >/dev/null
+      --only-show-errors >/dev/null 2>&1; then
+      fetched_mode="user"
+    else
+      fail "Failed to fetch AKS kubeconfig for ${CLUSTER_NAME}"
+    fi
   fi
 
-  rewrite_kubeconfig_server_with_public_dns "${tmp_kubeconfig}"
+  rewrite_kubeconfig_server_with_public_dns "${KUBECONFIG_FILE}"
 
-  mv "${tmp_kubeconfig}" "${KUBECONFIG_FILE}"
-  trap - EXIT
-  rm -rf "${lock_dir}" 2>/dev/null || true
-
+  export AKS_KUBECONFIG_FILE="${KUBECONFIG_FILE}"
   export KUBECONFIG="${KUBECONFIG_FILE}"
+  write_generated_env AKS_KUBECONFIG_FILE "${KUBECONFIG_FILE}"
+  log "Fetched AKS ${fetched_mode} kubeconfig for ${CLUSTER_NAME} into ${KUBECONFIG_FILE}"
 }
 
 wait_for_cluster_api() {

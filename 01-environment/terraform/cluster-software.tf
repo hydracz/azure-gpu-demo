@@ -150,20 +150,6 @@ resource "null_resource" "persist_aks_kubeconfig" {
     resource_group_name = azurerm_resource_group.main.name
     cluster_name        = azurerm_kubernetes_cluster.main.name
     kubeconfig_path     = local.kubeconfig_path
-    helper_script_sha   = filesha256("${path.module}/scripts/common.sh")
-    writer_script_sha   = filesha256("${path.module}/scripts/write-kubeconfig.sh")
-  }
-
-  provisioner "local-exec" {
-    command     = "bash ${path.module}/scripts/write-kubeconfig.sh"
-    interpreter = ["/bin/bash", "-lc"]
-
-    environment = {
-      KUBECONFIG_FILE       = self.triggers.kubeconfig_path
-      AZURE_SUBSCRIPTION_ID = self.triggers.subscription_id
-      RESOURCE_GROUP        = self.triggers.resource_group_name
-      CLUSTER_NAME          = self.triggers.cluster_name
-    }
   }
 
   depends_on = [
