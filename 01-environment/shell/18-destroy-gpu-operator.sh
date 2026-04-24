@@ -19,12 +19,7 @@ if ! aks_exists; then
   exit 0
 fi
 
-if ! az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null 2>&1; then
+if ! try_ensure_aks_kubeconfig; then
   warn "Failed to fetch AKS credentials for ${CLUSTER_NAME}; skipping GPU Operator uninstall"
   exit 0
 fi

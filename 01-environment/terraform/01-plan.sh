@@ -21,6 +21,7 @@ AUTO_VAR_FILE="${SCRIPT_DIR}/${ENV_NAME}.auto.tfvars.json"
 PLAN_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfplan"
 
 bash "${SCRIPT_DIR}/scripts/render-tfvars-from-env.sh" "${ENV_NAME}" "${AUTO_VAR_FILE}"
+bash "${SCRIPT_DIR}/scripts/ensure-azurerm-backend-access.sh" "01-plan.sh ${ENV_NAME}"
 
 cd "${SCRIPT_DIR}"
 terraform fmt -check

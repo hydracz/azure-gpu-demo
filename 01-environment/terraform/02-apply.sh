@@ -37,6 +37,8 @@ if [[ ! -f "${PLAN_FILE}" ]]; then
   exit 1
 fi
 
+bash "${SCRIPT_DIR}/scripts/ensure-azurerm-backend-access.sh" "02-apply.sh ${INPUT_ARG}"
+
 cd "${SCRIPT_DIR}"
 terraform apply -parallelism="${TF_APPLY_PARALLELISM:-1}" "${PLAN_FILE}"
 bash "${SCRIPT_DIR}/scripts/export-generated-env.sh"

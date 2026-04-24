@@ -30,7 +30,25 @@ require_env() {
   done
 }
 
+ensure_parent_dir() {
+  local target_path="$1"
+
+  mkdir -p "$(dirname "${target_path}")"
+}
+
+kubeconfig_file_exists() {
+  [[ -s "${KUBECONFIG_FILE}" ]]
+}
+
 refresh_kubeconfig() {
+  ensure_parent_dir "${KUBECONFIG_FILE}"
+
+  if kubeconfig_file_exists; then
+    export KUBECONFIG="${KUBECONFIG_FILE}"
+    log "Reusing existing kubeconfig ${KUBECONFIG_FILE} for ${CLUSTER_NAME}"
+    return 0
+  fi
+
   az account set --subscription "${AZURE_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
   az aks get-credentials \
     --resource-group "${RESOURCE_GROUP}" \

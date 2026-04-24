@@ -33,73 +33,70 @@ az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 
 # ── 1. 卸载集群内资源 (需要集群存在) ──────────────────────────────
 if aks_exists; then
-  az aks get-credentials \
-    --resource-group "${RESOURCE_GROUP}" \
-    --name "${CLUSTER_NAME}" \
-    --overwrite-existing \
-    --only-show-errors \
-    >/dev/null 2>&1 || true
+  if try_ensure_aks_kubeconfig; then
+    if [[ "${CLEANUP_QWEN_LOADTEST:-true}" == "true" && -x "${QWEN_DESTROY_SCRIPT}" ]]; then
+      log "Deleting qwen loadtest resources before removing shared platform components"
+      DELETE_QWEN_LOADTEST_NAMESPACE="${DELETE_QWEN_LOADTEST_NAMESPACE:-true}" \
+        "${QWEN_DESTROY_SCRIPT}" || warn "Qwen loadtest cleanup did not finish cleanly; continuing cleanup"
+    fi
 
-  if [[ "${CLEANUP_QWEN_LOADTEST:-true}" == "true" && -x "${QWEN_DESTROY_SCRIPT}" ]]; then
-    log "Deleting qwen loadtest resources before removing shared platform components"
-    DELETE_QWEN_LOADTEST_NAMESPACE="${DELETE_QWEN_LOADTEST_NAMESPACE:-true}" \
-      "${QWEN_DESTROY_SCRIPT}" || warn "Qwen loadtest cleanup did not finish cleanly; continuing cleanup"
-  fi
+    if [[ "${CLEANUP_CERT_MANAGER:-true}" == "true" && -x "${CERT_MANAGER_DESTROY_SCRIPT}" ]]; then
+      log "Deleting cert-manager platform resources"
+      "${CERT_MANAGER_DESTROY_SCRIPT}" || warn "cert-manager cleanup did not finish cleanly; continuing cleanup"
+    fi
 
-  if [[ "${CLEANUP_CERT_MANAGER:-true}" == "true" && -x "${CERT_MANAGER_DESTROY_SCRIPT}" ]]; then
-    log "Deleting cert-manager platform resources"
-    "${CERT_MANAGER_DESTROY_SCRIPT}" || warn "cert-manager cleanup did not finish cleanly; continuing cleanup"
-  fi
+    # 先删除测试应用, 释放 Pod, 否则 nodeclaim 无法回收
+    if kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
+      log "Deleting test app workloads in ${APP_NAMESPACE} before removing NodePools"
+      kubectl -n "${APP_NAMESPACE}" delete deployment "${APP_NAME:-gpu-probe}" --ignore-not-found=true 2>/dev/null || true
+      kubectl -n "${APP_NAMESPACE}" delete service "${APP_NAME:-gpu-probe}" --ignore-not-found=true 2>/dev/null || true
+      kubectl delete priorityclass "${APP_NAME:-gpu-probe}-priority" --ignore-not-found=true 2>/dev/null || true
+      # 等待 Pod 完全终止
+      log "Waiting for pods to terminate"
+      kubectl -n "${APP_NAMESPACE}" wait --for=delete pod --all --timeout=120s 2>/dev/null || true
+    fi
 
-  # 先删除测试应用, 释放 Pod, 否则 nodeclaim 无法回收
-  if kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
-    log "Deleting test app workloads in ${APP_NAMESPACE} before removing NodePools"
-    kubectl -n "${APP_NAMESPACE}" delete deployment "${APP_NAME:-gpu-probe}" --ignore-not-found=true 2>/dev/null || true
-    kubectl -n "${APP_NAMESPACE}" delete service "${APP_NAME:-gpu-probe}" --ignore-not-found=true 2>/dev/null || true
-    kubectl delete priorityclass "${APP_NAME:-gpu-probe}-priority" --ignore-not-found=true 2>/dev/null || true
-    # 等待 Pod 完全终止
-    log "Waiting for pods to terminate"
-    kubectl -n "${APP_NAMESPACE}" wait --for=delete pod --all --timeout=120s 2>/dev/null || true
-  fi
+    # 卸载 GPU Operator (在删除 NodePool 之前, 让 driver pod 先清理)
+    GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE:-gpu-operator}"
+    log "Deleting NVIDIADriver CRs"
+    kubectl delete nvidiadrivers.nvidia.com --all --ignore-not-found=true 2>/dev/null || true
+    sleep 10
+    log "Uninstalling GPU Operator Helm release"
+    if ! helm uninstall gpu-operator --namespace "${GPU_OPERATOR_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
+      warn "Helm release gpu-operator uninstall did not finish cleanly; continuing cleanup"
+    fi
+    if kubectl get namespace "${GPU_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+      kubectl delete namespace "${GPU_OPERATOR_NAMESPACE}" --ignore-not-found=true --timeout=60s 2>/dev/null || true
+    fi
 
-  # 卸载 GPU Operator (在删除 NodePool 之前, 让 driver pod 先清理)
-  GPU_OPERATOR_NAMESPACE="${GPU_OPERATOR_NAMESPACE:-gpu-operator}"
-  log "Deleting NVIDIADriver CRs"
-  kubectl delete nvidiadrivers.nvidia.com --all --ignore-not-found=true 2>/dev/null || true
-  sleep 10
-  log "Uninstalling GPU Operator Helm release"
-  if ! helm uninstall gpu-operator --namespace "${GPU_OPERATOR_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
-    warn "Helm release gpu-operator uninstall did not finish cleanly; continuing cleanup"
-  fi
-  if kubectl get namespace "${GPU_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
-    kubectl delete namespace "${GPU_OPERATOR_NAMESPACE}" --ignore-not-found=true --timeout=60s 2>/dev/null || true
-  fi
+    log "Removing Karpenter NodePool and AKSNodeClass"
+    kubectl delete nodepools --all --ignore-not-found=true 2>/dev/null || true
+    kubectl delete aksnodeclasses --all --ignore-not-found=true 2>/dev/null || true
 
-  log "Removing Karpenter NodePool and AKSNodeClass"
-  kubectl delete nodepools --all --ignore-not-found=true 2>/dev/null || true
-  kubectl delete aksnodeclasses --all --ignore-not-found=true 2>/dev/null || true
+    log "Waiting for Karpenter to drain GPU nodes (may take longer for large VMs)"
+    sleep "${CLEANUP_NODEPOOL_SETTLE_SECONDS}"
 
-  log "Waiting for Karpenter to drain GPU nodes (may take longer for large VMs)"
-  sleep "${CLEANUP_NODEPOOL_SETTLE_SECONDS}"
+    log "Uninstalling Karpenter Helm releases"
+    if ! helm uninstall karpenter --namespace "${KARPENTER_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
+      warn "Helm release karpenter uninstall did not finish cleanly within ${CLEANUP_HELM_TIMEOUT}; continuing cleanup"
+    fi
+    if ! helm uninstall karpenter-crd --namespace "${KARPENTER_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
+      warn "Helm release karpenter-crd uninstall did not finish cleanly within ${CLEANUP_HELM_TIMEOUT}; continuing cleanup"
+    fi
 
-  log "Uninstalling Karpenter Helm releases"
-  if ! helm uninstall karpenter --namespace "${KARPENTER_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
-    warn "Helm release karpenter uninstall did not finish cleanly within ${CLEANUP_HELM_TIMEOUT}; continuing cleanup"
-  fi
-  if ! helm uninstall karpenter-crd --namespace "${KARPENTER_NAMESPACE}" --wait --timeout "${CLEANUP_HELM_TIMEOUT}" 2>/dev/null; then
-    warn "Helm release karpenter-crd uninstall did not finish cleanly within ${CLEANUP_HELM_TIMEOUT}; continuing cleanup"
-  fi
-
-  log "Deleting namespace ${APP_NAMESPACE}"
-  if kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
-    kubectl delete namespace "${APP_NAMESPACE}" --ignore-not-found=true >/dev/null 2>&1 || true
-    if wait_for_namespace_deleted "${APP_NAMESPACE}" "${CLEANUP_NAMESPACE_WAIT_TIMEOUT}"; then
-      log "Namespace ${APP_NAMESPACE} deleted"
+    log "Deleting namespace ${APP_NAMESPACE}"
+    if kubectl get namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
+      kubectl delete namespace "${APP_NAMESPACE}" --ignore-not-found=true >/dev/null 2>&1 || true
+      if wait_for_namespace_deleted "${APP_NAMESPACE}" "${CLEANUP_NAMESPACE_WAIT_TIMEOUT}"; then
+        log "Namespace ${APP_NAMESPACE} deleted"
+      else
+        warn "Namespace ${APP_NAMESPACE} is still terminating; cleanup will continue"
+      fi
     else
-      warn "Namespace ${APP_NAMESPACE} is still terminating; cleanup will continue"
+      log "Namespace ${APP_NAMESPACE} does not exist"
     fi
   else
-    log "Namespace ${APP_NAMESPACE} does not exist"
+    warn "Unable to reuse or fetch AKS kubeconfig for ${CLUSTER_NAME}; skipping in-cluster cleanup and continuing with AKS deletion"
   fi
 fi
 

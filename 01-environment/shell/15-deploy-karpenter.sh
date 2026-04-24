@@ -59,12 +59,7 @@ export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
 # ── 加载 .generated.env 中集群信息 ─────────────────────────────────
 require_env AKS_OIDC_ISSUER AKS_ENDPOINT NODE_RESOURCE_GROUP
 
-az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null
+ensure_aks_kubeconfig
 
 aks_json="$(az aks show \
   --resource-group "${RESOURCE_GROUP}" \

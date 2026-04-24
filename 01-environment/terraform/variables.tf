@@ -272,6 +272,30 @@ variable "istio_kiali_proxy_service_name" {
   default     = "azuremonitor-query"
 }
 
+variable "istio_kiali_operator_target_image_repository" {
+  description = "Mirrored image repository for the Kiali operator"
+  type        = string
+  default     = ""
+}
+
+variable "istio_kiali_target_image_name" {
+  description = "Mirrored image name for the Kiali server"
+  type        = string
+  default     = ""
+}
+
+variable "istio_kiali_proxy_target_image" {
+  description = "Mirrored image reference for the Azure Monitor auth proxy used by Kiali"
+  type        = string
+  default     = ""
+}
+
+variable "istio_kiali_image_tag" {
+  description = "Shared image tag used by the mirrored Kiali images"
+  type        = string
+  default     = ""
+}
+
 variable "grafana_admin_principal_ids" {
   description = "Principal ids that should receive Grafana Admin on the Managed Grafana resource"
   type        = list(string)
@@ -480,6 +504,36 @@ variable "gpu_driver_require_matching_nodes" {
   description = "Whether to fail if no current nodes match the GPU driver selector"
   type        = bool
   default     = false
+}
+
+variable "gpu_driver_target_repository" {
+  description = "Mirrored image repository for the GPU driver image"
+  type        = string
+  default     = ""
+}
+
+variable "gpu_operator_mirror_nvidia_repository" {
+  description = "Mirrored base repository for NVIDIA GPU Operator images"
+  type        = string
+  default     = ""
+}
+
+variable "gpu_operator_mirror_nvidia_cloud_native_repository" {
+  description = "Mirrored repository for NVIDIA cloud native GPU Operator images"
+  type        = string
+  default     = ""
+}
+
+variable "gpu_operator_mirror_nvidia_k8s_repository" {
+  description = "Mirrored repository for NVIDIA k8s GPU Operator images"
+  type        = string
+  default     = ""
+}
+
+variable "gpu_operator_mirror_nfd_repository" {
+  description = "Mirrored repository for node-feature-discovery images"
+  type        = string
+  default     = ""
 }
 
 variable "gpu_driver_sync_enabled" {

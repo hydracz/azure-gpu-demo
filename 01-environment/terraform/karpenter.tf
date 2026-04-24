@@ -99,7 +99,6 @@ resource "null_resource" "install_karpenter" {
     subscription_id            = var.subscription_id
     location                   = var.location
     kubeconfig_path            = local.kubeconfig_path
-    shared_env_hash            = fileexists(local.shared_env_file) ? filesha256(local.shared_env_file) : ""
     system_pool_name           = var.system_pool_name
     karpenter_namespace        = var.karpenter_namespace
     karpenter_service_account  = var.karpenter_service_account

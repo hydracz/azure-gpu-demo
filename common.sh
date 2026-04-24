@@ -292,16 +292,30 @@ resolve_aks_kubeconfig_file() {
   printf '%s\n' "${AKS_KUBECONFIG_FILE:-${DEFAULT_AKS_KUBECONFIG_FILE}}"
 }
 
-ensure_aks_kubeconfig() {
+kubeconfig_file_exists() {
+  local kubeconfig_file="$1"
+
+  [[ -s "${kubeconfig_file}" ]]
+}
+
+try_ensure_aks_kubeconfig() {
   local kubeconfig_file
   local fetched_mode=""
+
+  kubeconfig_file="${1:-$(resolve_aks_kubeconfig_file)}"
+  ensure_parent_dir "${kubeconfig_file}"
+
+  if kubeconfig_file_exists "${kubeconfig_file}"; then
+    export AKS_KUBECONFIG_FILE="${kubeconfig_file}"
+    export KUBECONFIG="${kubeconfig_file}"
+    write_generated_env AKS_KUBECONFIG_FILE "${kubeconfig_file}"
+    log "Reusing existing kubeconfig ${kubeconfig_file} for ${CLUSTER_NAME:-cluster}"
+    return 0
+  fi
 
   need_cmd az
   need_cmd kubectl
   require_env AZ_SUBSCRIPTION_ID RESOURCE_GROUP CLUSTER_NAME
-
-  kubeconfig_file="${1:-$(resolve_aks_kubeconfig_file)}"
-  ensure_parent_dir "${kubeconfig_file}"
 
   az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors >/dev/null
   if az aks get-credentials \
@@ -324,7 +338,7 @@ ensure_aks_kubeconfig() {
       >/dev/null 2>&1; then
       fetched_mode="user"
     else
-      fail "Failed to fetch AKS kubeconfig for ${CLUSTER_NAME}"
+      return 1
     fi
   fi
 
@@ -333,6 +347,18 @@ ensure_aks_kubeconfig() {
   export AKS_KUBECONFIG_FILE="${kubeconfig_file}"
   export KUBECONFIG="${kubeconfig_file}"
   write_generated_env AKS_KUBECONFIG_FILE "${kubeconfig_file}"
+
+  return 0
+}
+
+ensure_aks_kubeconfig() {
+  local kubeconfig_file
+
+  kubeconfig_file="${1:-$(resolve_aks_kubeconfig_file)}"
+
+  if ! try_ensure_aks_kubeconfig "${kubeconfig_file}"; then
+    fail "Failed to fetch AKS kubeconfig for ${CLUSTER_NAME:-cluster}"
+  fi
 }
 
 write_generated_env() {

@@ -182,6 +182,10 @@ payload = {
     "istio_kiali_proxy_identity_name": get("ISTIO_KIALI_PROXY_IDENTITY_NAME", "id-aks-istio-kiali-proxy"),
     "istio_kiali_proxy_service_account_name": get("ISTIO_KIALI_PROXY_SERVICE_ACCOUNT_NAME", "azuremonitor-query"),
     "istio_kiali_proxy_service_name": get("ISTIO_KIALI_PROXY_SERVICE_NAME", "azuremonitor-query"),
+    "istio_kiali_operator_target_image_repository": get("ISTIO_KIALI_OPERATOR_TARGET_IMAGE_REPOSITORY"),
+    "istio_kiali_target_image_name": get("ISTIO_KIALI_TARGET_IMAGE_NAME"),
+    "istio_kiali_proxy_target_image": get("ISTIO_KIALI_PROXY_TARGET_IMAGE"),
+    "istio_kiali_image_tag": get("ISTIO_KIALI_IMAGE_TAG"),
     "grafana_admin_principal_ids": csv_list("GRAFANA_ADMIN_PRINCIPAL_IDS"),
     "prometheus_rule_group_enabled": as_bool("PROMETHEUS_RULE_GROUP_ENABLED", True),
     "prometheus_rule_group_interval": get("PROMETHEUS_RULE_GROUP_INTERVAL", "PT1M"),
@@ -220,6 +224,11 @@ payload = {
     "gpu_driver_allow_os_tag_alias": as_bool("GPU_DRIVER_ALLOW_OS_TAG_ALIAS", False),
     "gpu_driver_version_source_tag_2204": get("GPU_DRIVER_VERSION_SOURCE_TAG_2204", "580.105.08-ubuntu22.04"),
     "gpu_driver_version_source_tag_2404": get("GPU_DRIVER_VERSION_SOURCE_TAG_2404", "580.105.08-ubuntu24.04"),
+    "gpu_driver_target_repository": get("GPU_DRIVER_TARGET_REPOSITORY"),
+    "gpu_operator_mirror_nvidia_repository": get("GPU_OPERATOR_MIRROR_NVIDIA_REPOSITORY"),
+    "gpu_operator_mirror_nvidia_cloud_native_repository": get("GPU_OPERATOR_MIRROR_NVIDIA_CLOUD_NATIVE_REPOSITORY"),
+    "gpu_operator_mirror_nvidia_k8s_repository": get("GPU_OPERATOR_MIRROR_NVIDIA_K8S_REPOSITORY"),
+    "gpu_operator_mirror_nfd_repository": get("GPU_OPERATOR_MIRROR_NFD_REPOSITORY"),
     "tags": tags,
 }
 

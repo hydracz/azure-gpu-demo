@@ -63,6 +63,7 @@ cp aks.env.sample aks.env
 
 - 环境名仍然作为脚本参数，用来生成同目录下的 dev.tfbackend 和 dev.auto.tfvars.json。
 - 00-init.sh 现在也会从根目录 aks.env 动态调用 scripts/render-tfbackend-from-env.sh 生成最新的 dev.tfbackend。
+- 四个 Terraform 入口脚本现在都会先检查 backend 所在的 Azure Storage Account；如果 azurerm backend 的 Blob 数据面不可达，会先把该 storage account 的 public network access 打开，并把默认网络动作切回 Allow，再继续执行 Terraform。
 - 运行 01-environment/terraform 之前，先执行顶层 [00-prepare/00-prepare.sh](00-prepare/00-prepare.sh)，确保共享前置条件已经准备完成并写入根目录 `.generated.env`。
 - 01-environment/terraform 不会自动调用 00-prepare；它只消费已经准备好的 subnet、ACR 和共享镜像结果。缺任何一个依赖都应先回到 00-prepare 补齐，再重新 plan/apply。
 - backend 至少需要在 aks.env 里提供 TFSTATE_RESOURCE_GROUP 和 TFSTATE_STORAGE_ACCOUNT；TFSTATE_CONTAINER 默认是 tfstate，TFSTATE_KEY 默认是 azure-gpu-demo/01-environment/<env-name>.tfstate。

@@ -122,12 +122,7 @@ EXPECTED_DRIVER_SELECTOR="${GPU_DRIVER_NODE_SELECTOR_KEY}=${GPU_DRIVER_NODE_SELE
 az account set --subscription "${AZ_SUBSCRIPTION_ID}" --only-show-errors
 export AZURE_SUBSCRIPTION_ID="${AZ_SUBSCRIPTION_ID}"
 
-az aks get-credentials \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "${CLUSTER_NAME}" \
-  --overwrite-existing \
-  --only-show-errors \
-  >/dev/null
+ensure_aks_kubeconfig
 
 # ── 1. 安装 GPU Operator (driver disabled) ────────────────────────
 ensure_gpu_operator_controller

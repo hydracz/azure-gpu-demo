@@ -18,6 +18,7 @@ command -v terraform >/dev/null 2>&1 || {
 BACKEND_FILE="${SCRIPT_DIR}/${ENV_NAME}.tfbackend"
 
 bash "${SCRIPT_DIR}/scripts/render-tfbackend-from-env.sh" "${ENV_NAME}" "${BACKEND_FILE}"
+bash "${SCRIPT_DIR}/scripts/ensure-azurerm-backend-access.sh" "00-init.sh ${ENV_NAME}"
 
 cd "${SCRIPT_DIR}"
 terraform init -backend-config="${BACKEND_FILE}"
