@@ -15,6 +15,7 @@ required_vars=(
   KARPENTER_NAMESPACE
   KARPENTER_SERVICE_ACCOUNT
   KARPENTER_CLIENT_ID
+  KARPENTER_PRINCIPAL_ID
   KARPENTER_CHART_DIR
   KARPENTER_CRD_CHART_DIR
   KARPENTER_TARGET_IMAGE_REPOSITORY
@@ -48,12 +49,84 @@ for required_var in "${required_vars[@]}"; do
   [[ -n "${!required_var:-}" ]] || fail "${required_var} is required"
 done
 
+ROLE_ASSIGNMENT_MAX_RETRIES="${ROLE_ASSIGNMENT_MAX_RETRIES:-6}"
+ROLE_ASSIGNMENT_RETRY_SECONDS="${ROLE_ASSIGNMENT_RETRY_SECONDS:-10}"
+
 [[ -d "${KARPENTER_CHART_DIR}" ]] || fail "Karpenter chart not found: ${KARPENTER_CHART_DIR}"
 [[ -d "${KARPENTER_CRD_CHART_DIR}" ]] || fail "Karpenter CRD chart not found: ${KARPENTER_CRD_CHART_DIR}"
 
 refresh_aks_kubeconfig
 wait_for_cluster_api
 gpu_node_scheduling_key="${GPU_NODE_SCHEDULING_KEY:-scheduling.azure-gpu-demo/dedicated}"
+
+assign_role_if_missing() {
+  local role="$1"
+  local scope="$2"
+  local principal="$3"
+  local existing attempt create_output scope_name
+
+  scope_name="$(basename "${scope}")"
+
+  role_assignment_exists() {
+    local current_role="$1"
+    local current_scope="$2"
+    local current_principal="$3"
+
+    az role assignment list \
+      --assignee "${current_principal}" \
+      --role "${current_role}" \
+      --scope "${current_scope}" \
+      --query "length(@)" \
+      -o tsv \
+      --only-show-errors 2>/dev/null
+  }
+
+  existing="$(role_assignment_exists "${role}" "${scope}" "${principal}" || echo 0)"
+
+  if [[ "${existing}" != "0" ]]; then
+    log "Role '${role}' already assigned on ${scope_name}"
+    return 0
+  fi
+
+  for attempt in $(seq 1 "${ROLE_ASSIGNMENT_MAX_RETRIES}"); do
+    log "Ensuring role '${role}' on ${scope_name} (attempt ${attempt}/${ROLE_ASSIGNMENT_MAX_RETRIES})"
+
+    if create_output="$(az role assignment create \
+      --assignee-object-id "${KARPENTER_PRINCIPAL_ID}" \
+      --assignee-principal-type ServicePrincipal \
+      --role "${role}" \
+      --scope "${scope}" \
+      --only-show-errors \
+      -o none 2>&1)"; then
+      log "Assigned role '${role}' on ${scope_name}"
+      return 0
+    fi
+
+    if [[ "${create_output}" == *"RoleAssignmentExists"* ]]; then
+      log "Role '${role}' already assigned on ${scope_name}"
+      return 0
+    fi
+
+    existing="$(role_assignment_exists "${role}" "${scope}" "${principal}" || echo 0)"
+    if [[ "${existing}" != "0" ]]; then
+      log "Role '${role}' already assigned on ${scope_name}"
+      return 0
+    fi
+
+    if [[ "${create_output}" == *"PrincipalNotFound"* || "${create_output}" == *"does not exist in the directory"* || "${create_output}" == *"could not be found"* || "${create_output}" == *"Insufficient privileges to complete the operation"* ]]; then
+      if (( attempt < ROLE_ASSIGNMENT_MAX_RETRIES )); then
+        warn "Role assignment for '${role}' on ${scope_name} is waiting for directory propagation; retrying in ${ROLE_ASSIGNMENT_RETRY_SECONDS}s"
+        sleep "${ROLE_ASSIGNMENT_RETRY_SECONDS}"
+        continue
+      fi
+    fi
+
+    fail "Failed to assign role '${role}' on ${scope_name}: ${create_output}"
+  done
+}
+
+node_rg_id="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_NODE_RESOURCE_GROUP}"
+assign_role_if_missing "Managed Identity Operator" "${node_rg_id}" "${KARPENTER_PRINCIPAL_ID}"
 
 bootstrap_secret_name="$(kubectl get secrets -n kube-system -o go-template='{{range .items}}{{if eq .type "bootstrap.kubernetes.io/token"}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | head -n1)"
 [[ -n "${bootstrap_secret_name}" ]] || fail "No bootstrap token secret found in kube-system"

@@ -27,17 +27,6 @@ resource "azurerm_role_assignment" "karpenter_node_rg_network_contributor" {
   }
 }
 
-resource "azurerm_role_assignment" "karpenter_node_rg_identity_operator" {
-  scope                            = "/subscriptions/${var.subscription_id}/resourceGroups/${azurerm_kubernetes_cluster.main.node_resource_group}"
-  role_definition_name             = "Managed Identity Operator"
-  principal_id                     = azurerm_user_assigned_identity.karpenter.principal_id
-  skip_service_principal_aad_check = true
-
-  lifecycle {
-    ignore_changes = [skip_service_principal_aad_check]
-  }
-}
-
 resource "azurerm_role_assignment" "karpenter_vnet_reader" {
   scope                            = local.aks_vnet_id
   role_definition_name             = "Reader"
@@ -103,6 +92,7 @@ resource "null_resource" "install_karpenter" {
     karpenter_namespace        = var.karpenter_namespace
     karpenter_service_account  = var.karpenter_service_account
     karpenter_client_id        = azurerm_user_assigned_identity.karpenter.client_id
+    karpenter_principal_id     = azurerm_user_assigned_identity.karpenter.principal_id
     karpenter_chart_dir        = local.karpenter_chart_dir
     karpenter_crd_chart_dir    = local.karpenter_crd_chart_dir
     karpenter_chart_hash       = local.karpenter_chart_hash
@@ -146,6 +136,7 @@ resource "null_resource" "install_karpenter" {
       KARPENTER_NAMESPACE               = self.triggers.karpenter_namespace
       KARPENTER_SERVICE_ACCOUNT         = self.triggers.karpenter_service_account
       KARPENTER_CLIENT_ID               = self.triggers.karpenter_client_id
+      KARPENTER_PRINCIPAL_ID            = self.triggers.karpenter_principal_id
       KARPENTER_CHART_DIR               = self.triggers.karpenter_chart_dir
       KARPENTER_CRD_CHART_DIR           = self.triggers.karpenter_crd_chart_dir
       KARPENTER_TARGET_IMAGE_REPOSITORY = self.triggers.karpenter_image_repository
@@ -195,7 +186,6 @@ resource "null_resource" "install_karpenter" {
     azurerm_federated_identity_credential.karpenter,
     azurerm_role_assignment.karpenter_node_rg_vm_contributor,
     azurerm_role_assignment.karpenter_node_rg_network_contributor,
-    azurerm_role_assignment.karpenter_node_rg_identity_operator,
     azurerm_role_assignment.karpenter_vnet_reader,
     azurerm_role_assignment.karpenter_subnet_network_contributor,
     azurerm_role_assignment.karpenter_kubelet_identity_operator,
