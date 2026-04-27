@@ -1,0 +1,109 @@
+# KEDA 通过环境阶段创建的共享 ClusterTriggerAuthentication 访问 Azure Managed Prometheus。
+# 指标统计从 Gateway 代理进入当前应用 Service 的 Istio destination 侧成功请求数。
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ${APP_NAME}-elastic
+  namespace: ${APP_NAME}
+spec:
+  scaleTargetRef:
+    name: ${APP_NAME}-elastic
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  pollingInterval: 30
+  cooldownPeriod: 600
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            # 每分钟最多增加 1 个 GPU Pod，避免冷启动阶段对瞬时流量过度反应。
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies:
+            # 流量下降后逐步缩容，避免过早移除已经预热的 GPU 容量。
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+  triggers:
+    # Prometheus scaler：KEDA 会周期性执行下面的 PromQL，并把查询结果作为 HPA 外部指标。
+    - type: prometheus
+      # AverageValue 表示按“每个副本平均值”与 threshold 比较。
+      # 这里 threshold=30，可理解为目标是每个副本约承接最近 5 分钟 30 个有效请求。
+      metricType: AverageValue
+      authenticationRef:
+        # 环境阶段预先创建的 ClusterTriggerAuthentication，负责让 KEDA 使用托管身份查询 Azure Managed Prometheus。
+        # 业务清单里不保存 token、client secret 或连接密钥。
+        name: azure-managed-prometheus
+        kind: ClusterTriggerAuthentication
+      metadata:
+        # Azure Managed Prometheus 的查询入口，由 production.env 中的 MONITOR_WORKSPACE_QUERY_ENDPOINT 渲染。
+        serverAddress: ${MONITOR_WORKSPACE_QUERY_ENDPOINT}
+        # 业务含义：统计最近 5 分钟内，经由当前应用 Gateway 成功送达当前 Service 的非 5xx 请求总数。
+        # reporter="destination" 表示按服务接收端 sidecar 观测，避免只看 ingress/source 侧导致指标缺失。
+        # source_workload="${APP_NAME}-internal" 只统计从这个 Gateway 代理进入的流量。
+        # destination_service_name="${APP_NAME}" 只统计当前应用 Service 的请求。
+        # response_code!~"5.." 排除服务端错误，避免失败请求继续放大扩容。
+        # or vector(0) 保证没有任何请求序列时返回 0，而不是空结果导致 scaler 异常。
+        query: >-
+          sum(increase(istio_requests_total{reporter="destination",source_workload="${APP_NAME}-internal",destination_service_name="${APP_NAME}",response_code!~"5.."}[5m])) or vector(0)
+        # 当 PromQL 结果对应到平均每副本高于 30 时，HPA 会倾向于增加 elastic 副本。
+        threshold: "30"
+        # 查询结果低于 12 时 scaler 保持未激活；elastic 的 minReplicaCount=0，因此低流量时可以缩到 0。
+        activationThreshold: "12"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ${APP_NAME}-seed
+  namespace: ${APP_NAME}
+spec:
+  scaleTargetRef:
+    name: ${APP_NAME}-seed
+  # seed 暂时固定为 1 个 on-demand 基线副本：minReplicaCount 和 maxReplicaCount 设置成相同值即可禁用扩容。
+  # 后续如果希望 seed 也参与扩容，把 maxReplicaCount 改回 2 或更高即可。
+  minReplicaCount: 1
+  maxReplicaCount: 1
+  pollingInterval: 30
+  cooldownPeriod: 600
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            # seed 属于 on-demand 基线容量，扩容节奏比 elastic 更慢。
+            - type: Pods
+              value: 1
+              periodSeconds: 180
+        scaleDown:
+          stabilizationWindowSeconds: 600
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 120
+  triggers:
+    # seed 当前 min=max=1，不会实际扩容；保留 trigger 是为了后续恢复 seed 扩容时不用重建结构。
+    # 如果把 maxReplicaCount 改到 2 或更高，seed 会使用和 elastic 相同的入口流量指标作为额外算力补充。
+    - type: prometheus
+      # 和 elastic 一样按每个副本平均值比较，让 threshold 表示“每个 seed 副本的目标请求量”。
+      metricType: AverageValue
+      authenticationRef:
+        name: azure-managed-prometheus
+        kind: ClusterTriggerAuthentication
+      metadata:
+        # Azure Managed Prometheus 的查询入口，由 production.env 中的 MONITOR_WORKSPACE_QUERY_ENDPOINT 渲染。
+        serverAddress: ${MONITOR_WORKSPACE_QUERY_ENDPOINT}
+        # 业务含义和 elastic 相同：统计最近 5 分钟内，经由当前应用 Gateway 成功送达当前 Service 的非 5xx 请求总数。
+        # 如果未来允许 seed 扩容，它会和 elastic 一起根据入口吞吐补充算力，不再等待 elastic 先吃满。
+        # or vector(0) 保证没有任何请求序列时返回 0，而不是空结果导致 scaler 异常。
+        query: >-
+          sum(increase(istio_requests_total{reporter="destination",source_workload="${APP_NAME}-internal",destination_service_name="${APP_NAME}",response_code!~"5.."}[5m])) or vector(0)
+        # seed 的目标仍是每副本最近 5 分钟约 30 个有效请求；当前 maxReplicaCount=1，因此该值只作为保留配置。
+        threshold: "30"
+        # 扣减后的查询结果低于 12 时不触发 seed 继续扩容，保持 on-demand 基线更稳定。
+        activationThreshold: "12"

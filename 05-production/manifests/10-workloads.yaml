@@ -1,0 +1,210 @@
+# 这个示例部署了两组 GPU Pod 来承载大模型推理服务：
+# - seed 作为 on-demand 基线容量，默认保持一个常驻 GPU Pod；
+# - elastic 默认从 0 副本开始，由 KEDA 根据流量扩缩；
+# - 两组 Pod 共用一个 Service，调用方不需要关心请求落到哪一组副本。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}-seed
+  namespace: ${APP_NAME}
+spec:
+  # GPU 镜像拉取和初始化可能比较久，因此保留较长的 rollout deadline。
+  progressDeadlineSeconds: 3600
+  # 基线容量：默认固定 1 个常驻 on-demand GPU Pod，seed 暂时不扩容。
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+      component: seed
+  template:
+    metadata:
+      labels:
+        app: ${APP_NAME}
+        component: seed
+    spec:
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        # 匹配环境阶段创建的 GPU 专用节点 taint。
+        - key: scheduling.azure-gpu-demo/dedicated
+          operator: Equal
+          value: gpu-test
+          effect: NoSchedule
+        # GPU Operator / NVIDIA device plugin 通常也会给 GPU 节点加这个 taint。
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # 将业务 Pod 限定到 Karpenter 管理的 GPU 节点池。
+                  - key: scheduling.azure-gpu-demo/dedicated
+                    operator: In
+                    values: ["gpu-test"]
+                  # 绑定当前集群 RTX PRO 6000 节点上的 GPU SKU 标签值。
+                  - key: karpenter.azure.com/sku-gpu-name
+                    operator: In
+                    values: ["RTXPRO6000BSE"]
+                  # seed 是稳定基线容量，因此强制使用 on-demand GPU机器运行。
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values: ["on-demand"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            # 当 KEDA 将 seed 扩到 2 个副本时，尽量分散到不同节点。
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: ["${APP_NAME}"]
+                  - key: component
+                    operator: In
+                    values: ["seed"]
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: ${APP_NAME}
+          image: ${IMAGE_URL}
+          imagePullPolicy: Always
+          # CONTAINER_COMMAND 使用 shell 字符串，既可以传 "sleep 10000"，
+          # 也可以传带参数的完整启动命令。
+          command:
+            - /bin/sh
+            - -lc
+            - >-
+              ${CONTAINER_COMMAND}
+          ports:
+            - name: http
+              containerPort: 8080
+          # startupProbe 使用 TCP，因为大模型服务可能需要较长时间才进入可用 HTTP 状态。
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          # GPU Pod 通常资源需求较大，预留足够的 CPU 和内存可
+          resources:
+            requests:
+              cpu: 4
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: 8
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}-elastic
+  namespace: ${APP_NAME}
+spec:
+  progressDeadlineSeconds: 3600
+  # 弹性容量默认从 0 开始，只有当 KEDA 看到足够流量后才创建 Pod。
+  replicas: 0
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+      component: elastic
+  template:
+    metadata:
+      labels:
+        app: ${APP_NAME}
+        component: elastic
+    spec:
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - key: scheduling.azure-gpu-demo/dedicated
+          operator: Equal
+          value: gpu-test
+          effect: NoSchedule
+        # 允许 elastic Pod 调度到 spot 节点。
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: scheduling.azure-gpu-demo/dedicated
+                    operator: In
+                    values: ["gpu-test"]
+                  - key: karpenter.azure.com/sku-gpu-name
+                    operator: In
+                    values: ["RTXPRO6000BSE"]
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # 弹性容量优先使用 spot，但 spot 不可用时允许回退到 on-demand。
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: scheduling.azure-gpu-demo/dedicated
+                    operator: In
+                    values: ["gpu-test"]
+                  - key: karpenter.sh/capacity-type
+                    operator: In
+                    values: ["spot"]
+      containers:
+        - name: ${APP_NAME}
+          image: ${IMAGE_URL}
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -lc
+            - >-
+              ${CONTAINER_COMMAND}
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            tcpSocket:
+              port: http
+            failureThreshold: 120
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 4
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: 8
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAME}
+spec:
+  # Service 只按共享 app label 选择 Pod，因此 seed 和 elastic 会一起接流量。
+  selector:
+    app: ${APP_NAME}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

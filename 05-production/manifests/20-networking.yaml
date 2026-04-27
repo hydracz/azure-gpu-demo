@@ -1,0 +1,65 @@
+# 网络入口，使用 Gateway API 定义了一个由 Istio 管理的 internal LoadBalancer内网暴露模型。
+# Gateway API 创建 Istio 管理的 internal LoadBalancer，HTTPRoute 将流量转到共享 Service，
+# DestinationRule 使用较保守的请求分配和连接池设置。
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ${APP_NAME}-internal
+  namespace: ${APP_NAME}
+  annotations:
+    # 固定 Gateway 自动生成的代理和 Service 名称；KEDA 的 PromQL 会用它匹配 source_workload 标签。
+    gateway.istio.io/name-override: ${APP_NAME}-internal
+    # 使用True避免创建公网IP, 通过内网暴露模型服务。
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+  labels:
+    istio.io/rev: asm-1-27
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      hostname: ${APP_NAME}.internal
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          # 这里只限制哪些 namespace 里的 HTTPRoute 可以绑定 Gateway，不限制客户端来源 IP。
+          # 访问来源由 internal LoadBalancer、VNet/NSG/防火墙等网络配置决定。
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAME}
+spec:
+  parentRefs:
+    - name: ${APP_NAME}-internal
+      sectionName: http
+  hostnames:
+    # 这个 host 主要用于 Gateway 路由匹配，不要求配置公网 DNS。
+    - ${APP_NAME}.internal
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: ${APP_NAME}
+          port: 8080
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: ${APP_NAME}
+  namespace: ${APP_NAME}
+spec:
+  host: ${APP_NAME}.${APP_NAME}.svc.cluster.local
+  trafficPolicy:
+    # LEAST_REQUEST 尽量避免继续把请求打到已经繁忙的 Pod。
+    loadBalancer:
+      simple: LEAST_REQUEST
+    connectionPool:
+      http:
+        # 保持较短队列，req=1，模拟生成环境，单个pod只能处理一个请求的场景，
+        http1MaxPendingRequests: 1
+        maxRequestsPerConnection: 1

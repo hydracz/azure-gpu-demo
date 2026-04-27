@@ -1,0 +1,9 @@
+# 本目录内的 Kubernetes 资源名都基于 APP_NAME 派生。
+# namespace 也直接使用 APP_NAME，方便把一个应用作为整体部署、测试和清理。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${APP_NAME}
+  labels:
+    # AKS managed Istio 使用 revision label 注入 sidecar，不使用 istio-injection=enabled。
+    istio.io/rev: asm-1-27
