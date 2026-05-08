@@ -27,6 +27,8 @@ PRODUCTION_ENV_FILE=/path/to/customer.env ./05-production/apply.sh
 - `APP_NAME`: 应用名，同时作为 namespace 和资源名前缀，默认 `production-app`。
 - `IMAGE_URL`: 业务镜像地址，部署前必须填写。
 - `CONTAINER_COMMAND`: 容器启动命令，默认 `sleep 10000`。
+- `ISTIO_REQUEST_TIMEOUT`: Istio HTTPRoute 请求总超时，默认 `120s`。
+- `ISTIO_CONNECT_TIMEOUT`: Istio 上游 TCP 连接建立超时，默认 `1s`。
 - `MONITOR_WORKSPACE_QUERY_ENDPOINT`: Azure Managed Prometheus 查询入口。
 
 ## 部署内容
@@ -34,8 +36,8 @@ PRODUCTION_ENV_FILE=/path/to/customer.env ./05-production/apply.sh
 - seed Deployment: 固定 1 个 on-demand GPU 副本。
 - elastic Deployment: 默认 0 个副本，由 KEDA 按入口请求量扩到最多 4 个。
 - Service: 统一暴露 seed 和 elastic Pod。
-- Gateway / HTTPRoute: 通过 internal LoadBalancer 暴露 HTTP 入口。
-- DestinationRule: 使用 `LEAST_REQUEST` 和短连接队列，避免请求继续打到繁忙 Pod。
+- Gateway / HTTPRoute: 通过 internal LoadBalancer 暴露 HTTP 入口，并把请求总超时设置为 `ISTIO_REQUEST_TIMEOUT`。
+- DestinationRule: 使用 `LEAST_REQUEST`、`ISTIO_CONNECT_TIMEOUT` 和短连接队列，避免请求继续打到繁忙 Pod。
 - KEDA ScaledObject: 基于 Azure Managed Prometheus 中的 Istio 请求指标扩缩容。
 
 如果镜像来自外部私有仓库，请先在 `${APP_NAME}` namespace 中创建 image pull secret，再按需要给 Deployment 增加 `imagePullSecrets`。

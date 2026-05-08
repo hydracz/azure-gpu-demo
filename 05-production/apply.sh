@@ -62,6 +62,8 @@ APP_NAME="${APP_NAME:-${appname:-production-app}}"
 export APP_NAME
 export IMAGE_URL
 export CONTAINER_COMMAND="${CONTAINER_COMMAND:-sleep 10000}"
+export ISTIO_REQUEST_TIMEOUT="${ISTIO_REQUEST_TIMEOUT:-120s}"
+export ISTIO_CONNECT_TIMEOUT="${ISTIO_CONNECT_TIMEOUT:-1s}"
 export MONITOR_WORKSPACE_QUERY_ENDPOINT
 
 rm -rf "${RENDERED_DIR}"
@@ -69,7 +71,7 @@ mkdir -p "${RENDERED_DIR}"
 
 for manifest in "${MANIFEST_DIR}"/*.yaml; do
   rendered_manifest="${RENDERED_DIR}/$(basename "${manifest}")"
-  envsubst '${APP_NAME} ${IMAGE_URL} ${CONTAINER_COMMAND} ${MONITOR_WORKSPACE_QUERY_ENDPOINT}' < "${manifest}" > "${rendered_manifest}"
+  envsubst '${APP_NAME} ${IMAGE_URL} ${CONTAINER_COMMAND} ${ISTIO_REQUEST_TIMEOUT} ${ISTIO_CONNECT_TIMEOUT} ${MONITOR_WORKSPACE_QUERY_ENDPOINT}' < "${manifest}" > "${rendered_manifest}"
   log "Applying ${rendered_manifest}"
   kubectl apply -f "${rendered_manifest}"
 done

@@ -1,6 +1,6 @@
 # 网络入口，使用 Gateway API 定义了一个由 Istio 管理的 internal LoadBalancer内网暴露模型。
 # Gateway API 创建 Istio 管理的 internal LoadBalancer，HTTPRoute 将流量转到共享 Service，
-# DestinationRule 使用较保守的请求分配和连接池设置。
+# HTTPRoute 设置请求超时，DestinationRule 使用较保守的请求分配和连接池设置。
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -43,6 +43,9 @@ spec:
         - path:
             type: PathPrefix
             value: /
+      timeouts:
+        # 请求总超时，覆盖 Istio 默认的 15s，满足生成类请求最长 120s 的要求。
+        request: ${ISTIO_REQUEST_TIMEOUT}
       backendRefs:
         - name: ${APP_NAME}
           port: 8080
@@ -59,6 +62,9 @@ spec:
     loadBalancer:
       simple: LEAST_REQUEST
     connectionPool:
+      tcp:
+        # 上游 TCP 连接建立超时，避免连接阶段长时间等待。
+        connectTimeout: ${ISTIO_CONNECT_TIMEOUT}
       http:
         # 保持较短队列，req=1，模拟生成环境，单个pod只能处理一个请求的场景，
         http1MaxPendingRequests: 1
