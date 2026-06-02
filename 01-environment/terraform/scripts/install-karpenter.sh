@@ -128,12 +128,99 @@ assign_role_if_missing() {
 node_rg_id="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_NODE_RESOURCE_GROUP}"
 assign_role_if_missing "Managed Identity Operator" "${node_rg_id}" "${KARPENTER_PRINCIPAL_ID}"
 
-bootstrap_secret_name="$(kubectl get secrets -n kube-system -o go-template='{{range .items}}{{if eq .type "bootstrap.kubernetes.io/token"}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | head -n1)"
-[[ -n "${bootstrap_secret_name}" ]] || fail "No bootstrap token secret found in kube-system"
+bootstrap_token_is_valid() {
+  local expiration="$1"
+  local min_valid_seconds="${KARPENTER_BOOTSTRAP_TOKEN_MIN_VALID_SECONDS:-3600}"
 
-bootstrap_token_id="$(kubectl get secret -n kube-system "${bootstrap_secret_name}" -o jsonpath='{.data.token-id}' | base64 -d)"
-bootstrap_token_secret="$(kubectl get secret -n kube-system "${bootstrap_secret_name}" -o jsonpath='{.data.token-secret}' | base64 -d)"
-[[ -n "${bootstrap_token_id}" && -n "${bootstrap_token_secret}" ]] || fail "Bootstrap token secret ${bootstrap_secret_name} is incomplete"
+  [[ -z "${expiration}" ]] && return 0
+
+  python3 - "${expiration}" "${min_valid_seconds}" <<'PY'
+from datetime import datetime, timezone
+import sys
+
+expiration = sys.argv[1]
+min_valid_seconds = int(sys.argv[2])
+
+try:
+    expires_at = datetime.fromisoformat(expiration.replace("Z", "+00:00"))
+except ValueError:
+    raise SystemExit(1)
+
+remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+raise SystemExit(0 if remaining > min_valid_seconds else 1)
+PY
+}
+
+bootstrap_auth_extra_groups() {
+  kubectl get secrets -n kube-system -o json | python3 -c 'import base64, json, sys
+payload = json.load(sys.stdin)
+default_groups = "system:bootstrappers:kubeadm:default-node-token"
+for item in payload.get("items", []):
+  if item.get("type") != "bootstrap.kubernetes.io/token":
+    continue
+  data = item.get("data") or {}
+  raw_groups = data.get("auth-extra-groups")
+  if raw_groups:
+    print(base64.b64decode(raw_groups).decode())
+    break
+else:
+  print(default_groups)'
+}
+
+bootstrap_token_id="${KARPENTER_BOOTSTRAP_TOKEN_ID:-karp00}"
+[[ "${bootstrap_token_id}" =~ ^[a-z0-9]{6}$ ]] || fail "KARPENTER_BOOTSTRAP_TOKEN_ID must match ^[a-z0-9]{6}$, got: ${bootstrap_token_id}"
+bootstrap_secret_name="bootstrap-token-${bootstrap_token_id}"
+bootstrap_token_secret="$(kubectl get secret -n kube-system "${bootstrap_secret_name}" -o jsonpath='{.data.token-secret}' 2>/dev/null | base64 -d || true)"
+bootstrap_token_expiration="$(kubectl get secret -n kube-system "${bootstrap_secret_name}" -o jsonpath='{.data.expiration}' 2>/dev/null | base64 -d || true)"
+
+if [[ -z "${bootstrap_token_secret}" ]] || ! bootstrap_token_is_valid "${bootstrap_token_expiration}"; then
+  bootstrap_token_secret="$(python3 - <<'PY'
+import secrets
+import string
+
+alphabet = string.ascii_lowercase + string.digits
+print("".join(secrets.choice(alphabet) for _ in range(16)))
+PY
+)"
+  bootstrap_token_groups="$(bootstrap_auth_extra_groups)"
+  bootstrap_token_ttl_hours="${KARPENTER_BOOTSTRAP_TOKEN_TTL_HOURS:-0}"
+  expiration_yaml=""
+
+  if [[ "${bootstrap_token_ttl_hours}" != "0" ]]; then
+    [[ "${bootstrap_token_ttl_hours}" =~ ^[0-9]+$ ]] || fail "KARPENTER_BOOTSTRAP_TOKEN_TTL_HOURS must be a non-negative integer, got: ${bootstrap_token_ttl_hours}"
+    bootstrap_token_expiration="$(python3 - "${bootstrap_token_ttl_hours}" <<'PY'
+from datetime import datetime, timedelta, timezone
+import sys
+
+hours = int(sys.argv[1])
+print((datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat().replace("+00:00", "Z"))
+PY
+)"
+    expiration_yaml="  expiration: \"${bootstrap_token_expiration}\""
+  fi
+
+  log "Creating dedicated Karpenter bootstrap token ${bootstrap_secret_name}"
+  cat <<EOF | kubectl apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${bootstrap_secret_name}
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/managed-by: azure-gpu-demo
+    azure-gpu-demo/karpenter-bootstrap-token: "true"
+type: bootstrap.kubernetes.io/token
+stringData:
+  token-id: "${bootstrap_token_id}"
+  token-secret: "${bootstrap_token_secret}"
+  usage-bootstrap-authentication: "true"
+  usage-bootstrap-signing: "true"
+  auth-extra-groups: "${bootstrap_token_groups}"
+${expiration_yaml}
+EOF
+else
+  log "Using existing dedicated Karpenter bootstrap token ${bootstrap_secret_name}"
+fi
 
 kubelet_bootstrap_token="${bootstrap_token_id}.${bootstrap_token_secret}"
 

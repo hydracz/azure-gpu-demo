@@ -126,9 +126,9 @@ variable "istio_service_mesh_enabled" {
 }
 
 variable "istio_revisions" {
-  description = "Istio control plane revisions for the AKS managed service mesh add-on. Defaults to asm-1-27; set to [] to let AKS choose the default supported revision."
+  description = "Istio control plane revisions for the AKS managed service mesh add-on. Defaults to asm-1-29; set to [] to let AKS choose the default supported revision."
   type        = list(string)
-  default     = ["asm-1-27"]
+  default     = ["asm-1-29"]
 }
 
 variable "istio_internal_ingress_gateway_enabled" {

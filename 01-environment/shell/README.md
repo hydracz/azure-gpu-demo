@@ -56,7 +56,7 @@ shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下
 
 同时，10-create-aks.sh 现在会默认确保以下平台能力已经就绪：
 
-- AKS managed Istio (`asm-1-27`)
+- AKS managed Istio (`asm-1-29`)
 - AKS managed Gateway API
 - external ingress gateway（默认关闭，可用统一开关开启）
 - internal ingress gateway（默认关闭，可用统一开关开启）

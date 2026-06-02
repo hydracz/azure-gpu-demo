@@ -161,7 +161,7 @@ payload = {
     "blob_driver_enabled": as_bool("AKS_ENABLE_BLOB_DRIVER", True),
     "managed_gateway_api_enabled": as_bool("AKS_MANAGED_GATEWAY_API_ENABLED", True),
     "istio_service_mesh_enabled": as_bool("ISTIO_SERVICE_MESH_ENABLED", True),
-    "istio_revisions": csv_list("ISTIO_REVISIONS_CSV") or ["asm-1-27"],
+    "istio_revisions": csv_list("ISTIO_REVISIONS_CSV") or ["asm-1-29"],
     "istio_internal_ingress_gateway_enabled": as_bool("ISTIO_INTERNAL_INGRESS_GATEWAY_ENABLED", False),
     "istio_external_ingress_gateway_enabled": as_bool("ISTIO_EXTERNAL_INGRESS_GATEWAY_ENABLED", False),
     "cert_manager_enabled": cert_manager_enabled,

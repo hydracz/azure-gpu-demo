@@ -12,7 +12,7 @@ metadata:
     # 使用True避免创建公网IP, 通过内网暴露模型服务。
     service.beta.kubernetes.io/azure-load-balancer-internal: "true"
   labels:
-    istio.io/rev: asm-1-27
+    istio.io/rev: asm-1-29
 spec:
   gatewayClassName: istio
   listeners:

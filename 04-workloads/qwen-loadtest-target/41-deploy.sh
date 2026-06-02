@@ -98,12 +98,36 @@ QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NAME="${QWEN_LOADTEST_ELASTIC_SCALEDOBJECT_NA
 resolve_istio_revision() {
   local revision="${QWEN_LOADTEST_ISTIO_REVISION:-}"
 
+  istio_revision_exists() {
+    local candidate="$1"
+
+    [[ -n "${candidate}" ]] || return 1
+
+    kubectl get mutatingwebhookconfiguration "istio-sidecar-injector-${candidate}-aks-istio-system" >/dev/null 2>&1 \
+      || kubectl get deployment -n aks-istio-system "istiod-${candidate}" >/dev/null 2>&1
+  }
+
+  if [[ -n "${revision}" ]] && ! istio_revision_exists "${revision}"; then
+    warn "Configured QWEN_LOADTEST_ISTIO_REVISION=${revision} was not found in the cluster; resolving current managed Istio revision"
+    revision=""
+  fi
+
   if [[ -z "${revision}" && -n "${ISTIO_REVISIONS_CSV:-}" ]]; then
     IFS=',' read -r revision _ <<<"${ISTIO_REVISIONS_CSV}"
   fi
 
+  if [[ -n "${revision}" ]] && ! istio_revision_exists "${revision}"; then
+    warn "Configured ISTIO_REVISIONS_CSV/SERVICE_MESH_REVISIONS_CSV revision ${revision} was not found in the cluster; falling back to cluster discovery"
+    revision=""
+  fi
+
   if [[ -z "${revision}" && -n "${SERVICE_MESH_REVISIONS_CSV:-}" ]]; then
     IFS=',' read -r revision _ <<<"${SERVICE_MESH_REVISIONS_CSV}"
+  fi
+
+  if [[ -n "${revision}" ]] && ! istio_revision_exists "${revision}"; then
+    warn "Configured SERVICE_MESH_REVISIONS_CSV revision ${revision} was not found in the cluster; falling back to cluster discovery"
+    revision=""
   fi
 
   if [[ -z "${revision}" ]]; then

@@ -77,7 +77,7 @@ cp aks.env.sample aks.env
 - Terraform 默认还会把仓库内置的 dashboard 自动导入到 Azure Managed Grafana，目前包括 Istio workload 看板和一个适配 DCGM exporter 的 GPU 看板；如果不想导入，可把 grafana_dashboard_import_enabled 设为 false。
 - AKS 监控不只开启 monitor_metrics，还会创建 Managed Prometheus 的 DCR、DCRA，以及基础 recording rules。
 - AKS 默认开启 Azure Blob CSI Driver，对应 az aks create/update 的 --enable-blob-driver；如果走统一的根目录 aks.env，可把 AKS_ENABLE_BLOB_DRIVER 设为 false；如果手写 tfvar，则使用 Terraform 变量 blob_driver_enabled。
-- AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-27；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
+- AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-29；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
 - 默认会启用 AKS managed Gateway API，并安装 cert-manager；创建的 `letsencrypt-staging` / `letsencrypt-prod` 两个 `ClusterIssuer` 会继续保留给后续其他 workload 使用。使用前需要在根目录 `aks.env` 中设置 `CERT_MANAGER_ACME_EMAIL`。
 - AKS 托管 Istio internal / external ingress gateway 默认都关闭；需要时再通过统一的 istio_internal_ingress_gateway_enabled / istio_external_ingress_gateway_enabled 开关开启。开启后，两组 gateway 的 HPA 副本范围分别由 istio_internal_ingress_gateway_min_replicas / max_replicas 和 istio_external_ingress_gateway_min_replicas / max_replicas 控制；如果想固定副本数，直接把对应 min 和 max 设成同一个值。
 - AKS 托管 Istio 的 Gateway 资源选择器应分别使用 istio: aks-istio-ingressgateway-internal 和 istio: aks-istio-ingressgateway-external。
