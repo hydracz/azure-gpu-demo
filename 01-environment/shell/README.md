@@ -46,7 +46,7 @@ cp aks.env.sample aks.env
 
 说明：10-create-aks.sh 现在会自动调用 12-deploy-cert-manager.sh，因此正常场景不需要单独执行 12；如果你只想重试证书平台安装，再单独运行 12 即可。
 
-说明：10-create-aks.sh 也会自动调用 19-import-grafana-dashboards.sh，把 Istio workload 看板和当前仓库兼容的 GPU DCGM 看板导入到 Azure Managed Grafana；如果只想重试 dashboard 导入，可单独运行 19。
+说明：10-create-aks.sh 也会自动调用 19-import-grafana-dashboards.sh，把 Istio workload、AKS GPU DCGM、GPU 需求/容量看板导入到 Azure Managed Grafana；如果只想重试 dashboard 导入，可单独运行 19。
 
 ## Charts 位置
 
@@ -62,7 +62,7 @@ shell 流程依赖 vendored Helm charts，统一放在 01-environment/charts 下
 - internal ingress gateway（默认关闭，可用统一开关开启）
 - cert-manager
 - Let's Encrypt `ClusterIssuer`（staging / prod）
-- Azure Managed Grafana dashboard 导入（Istio workload + AKS GPU DCGM）
+- Azure Managed Grafana dashboard 导入（Istio workload + AKS GPU DCGM + GPU demand/capacity）
 - KEDA operator 访问 Azure Managed Prometheus 所需的 shared workload identity 和 `ClusterTriggerAuthentication`
 
 启用 cert-manager 时，需要在根目录 `aks.env` 里提供 `CERT_MANAGER_ACME_EMAIL`。后续 workload 默认直接使用 `letsencrypt-prod` 签发证书。

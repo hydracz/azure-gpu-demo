@@ -80,6 +80,7 @@ QWEN_LOADTEST_CPU_REQUEST="${QWEN_LOADTEST_CPU_REQUEST:-4}"
 QWEN_LOADTEST_CPU_LIMIT="${QWEN_LOADTEST_CPU_LIMIT:-8}"
 QWEN_LOADTEST_MEMORY_REQUEST="${QWEN_LOADTEST_MEMORY_REQUEST:-24Gi}"
 QWEN_LOADTEST_MEMORY_LIMIT="${QWEN_LOADTEST_MEMORY_LIMIT:-32Gi}"
+QWEN_LOADTEST_RUNTIME_APP_BOOTSTRAP="${QWEN_LOADTEST_RUNTIME_APP_BOOTSTRAP:-false}"
 default_gpu_node_class="$(resolve_gpu_node_class)"
 default_gpu_node_sku_label_value="$(derive_gpu_node_sku_label_value)"
 QWEN_LOADTEST_GPU_NODE_CLASS="${QWEN_LOADTEST_GPU_NODE_CLASS:-${default_gpu_node_class}}"
@@ -337,6 +338,79 @@ EOF
 )"
 fi
 
+container_command_yaml=""
+if [[ "${QWEN_LOADTEST_RUNTIME_APP_BOOTSTRAP}" == "true" ]]; then
+  container_command_yaml="$(cat <<'EOF'
+          command:
+            - /bin/bash
+            - -lc
+          args:
+            - |
+              set -euo pipefail
+              python -m pip install --no-cache-dir fastapi uvicorn python-multipart
+              cd /tmp
+              cat > main.py <<'PY'
+              from __future__ import annotations
+
+              import os
+              import threading
+              import time
+
+              from fastapi import FastAPI, File, Form, UploadFile
+              from fastapi.responses import JSONResponse
+              import torch
+
+              app = FastAPI(title="GPU Load Test Target")
+              compute_lock = threading.Lock()
+
+              @app.get("/healthz")
+              def healthz() -> dict[str, str]:
+                  return {"status": "ok"}
+
+              @app.post("/predict")
+              def predict(
+                  image: UploadFile = File(...),
+                  prompt: str = Form(""),
+                  steps: int = Form(6),
+                  cfg: float = Form(2.5),
+              ) -> JSONResponse:
+                  if not compute_lock.acquire(blocking=False):
+                      return JSONResponse(status_code=429, content={"status": "busy"})
+                  try:
+                      if not torch.cuda.is_available():
+                          return JSONResponse(status_code=503, content={"status": "no_cuda"})
+                      _ = image.file.read(1024)
+                      size = int(os.getenv("GPU_LOADTEST_MATRIX_SIZE", "4096"))
+                      loops = max(1, int(steps))
+                      device = torch.device("cuda")
+                      start_time = time.perf_counter()
+                      left = torch.randn((size, size), device=device, dtype=torch.float16)
+                      right = torch.randn((size, size), device=device, dtype=torch.float16)
+                      result = None
+                      with torch.inference_mode():
+                          for _index in range(loops):
+                              result = torch.matmul(left, right)
+                          torch.cuda.synchronize()
+                      elapsed = time.perf_counter() - start_time
+                      checksum = float(result[0, 0].detach().float().cpu()) if result is not None else 0.0
+                      return JSONResponse(content={
+                          "status": "success",
+                          "gpu_execution_time": round(elapsed, 4),
+                          "received_prompt": prompt,
+                          "executed_steps": loops,
+                          "cfg": cfg,
+                          "checksum": round(checksum, 4),
+                      })
+                  finally:
+                      if torch.cuda.is_available():
+                          torch.cuda.empty_cache()
+                      compute_lock.release()
+              PY
+              exec uvicorn main:app --host 0.0.0.0 --port 8080 --workers 1
+EOF
+)"
+fi
+
 cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: apps/v1
 kind: Deployment
@@ -395,6 +469,7 @@ ${image_pull_secrets_yaml}
         - name: ${QWEN_LOADTEST_NAME}
           image: ${QWEN_LOADTEST_TARGET_IMAGE}
           imagePullPolicy: Always
+${container_command_yaml}
           ports:
             - name: http
               containerPort: ${QWEN_LOADTEST_CONTAINER_PORT}
@@ -480,6 +555,7 @@ ${image_pull_secrets_yaml}
         - name: ${QWEN_LOADTEST_NAME}
           image: ${QWEN_LOADTEST_TARGET_IMAGE}
           imagePullPolicy: Always
+${container_command_yaml}
           ports:
             - name: http
               containerPort: ${QWEN_LOADTEST_CONTAINER_PORT}

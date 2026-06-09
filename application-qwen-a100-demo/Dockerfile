@@ -26,7 +26,7 @@ RUN uv pip install --system torch torchvision torchaudio --index-url https://dow
     uv pip install --system "diffusers[torch]" transformers accelerate sentencepiece protobuf safetensors fastapi uvicorn python-multipart pillow huggingface_hub[hf_transfer]
 
 RUN mkdir -p /opt/model-cache
-RUN python -c "from diffusers import QwenImageEditPlusPipeline; import torch; QwenImageEditPlusPipeline.from_pretrained('Qwen/Qwen-Image-Edit-2511', torch_dtype=torch.bfloat16, cache_dir='/opt/model-cache')"
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-Edit-2511', cache_dir='/opt/model-cache')"
 
 COPY main.py /app/main.py
 

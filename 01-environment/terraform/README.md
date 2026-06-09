@@ -74,7 +74,7 @@ cp aks.env.sample aks.env
 - 如果启用了 Karpenter、GPU Operator 或 Kiali，render 脚本还会在 plan 前检查 00-prepare 写入的镜像仓库变量是否齐全，缺失时直接报错提示回到 00-prepare 补齐。
 - Managed Grafana 管理员默认会自动解析当前 az login 用户/主体的 object id；如果需要授予额外管理员，再显式设置 grafana_admin_principal_ids。
 - Managed Grafana 会自动集成 Azure Monitor Workspace，并补齐对 Monitor Workspace 的 Monitoring Data Reader / Monitoring Metrics Publisher 权限。
-- Terraform 默认还会把仓库内置的 dashboard 自动导入到 Azure Managed Grafana，目前包括 Istio workload 看板和一个适配 DCGM exporter 的 GPU 看板；如果不想导入，可把 grafana_dashboard_import_enabled 设为 false。
+- Terraform 默认还会把仓库内置的 dashboard 自动导入到 Azure Managed Grafana，目前包括 Istio workload、AKS GPU DCGM、GPU 需求/容量看板；如果不想导入，可把 grafana_dashboard_import_enabled 设为 false。
 - AKS 监控不只开启 monitor_metrics，还会创建 Managed Prometheus 的 DCR、DCRA，以及基础 recording rules。
 - AKS 默认开启 Azure Blob CSI Driver，对应 az aks create/update 的 --enable-blob-driver；如果走统一的根目录 aks.env，可把 AKS_ENABLE_BLOB_DRIVER 设为 false；如果手写 tfvar，则使用 Terraform 变量 blob_driver_enabled。
 - AKS 托管 Istio add-on 默认开启，并默认固定使用 asm-1-29；如果要改回由 AKS 自动选择，把 istio_revisions 设为 []。
