@@ -98,6 +98,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Uses DCGM_FI_PROF_PIPE_TENSOR_ACTIVE. This is Tensor Core pipe active percentage, not nvidia-smi GPU-Util. On RTX PRO 6000 vGPU/MIG profiles, nvidia-smi may report GPU Utilization as N/A while DCGM Tensor Active still reports compute activity.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent"
@@ -139,7 +140,7 @@
           "refId": "A"
         }
       ],
-      "title": "Average Compute Utilization",
+      "title": "Average Tensor Active",
       "type": "stat"
     },
     {
@@ -147,6 +148,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Uses DCGM_FI_PROF_PIPE_TENSOR_ACTIVE. This is Tensor Core pipe active percentage, not nvidia-smi GPU-Util.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent"
@@ -188,7 +190,7 @@
           "refId": "A"
         }
       ],
-      "title": "Peak Compute Utilization",
+      "title": "Peak Tensor Active",
       "type": "stat"
     },
     {
@@ -303,6 +305,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
+      "description": "Uses DCGM_FI_PROF_PIPE_TENSOR_ACTIVE. This is Tensor Core pipe active percentage, not nvidia-smi GPU-Util.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent"
@@ -342,7 +345,7 @@
           "refId": "A"
         }
       ],
-      "title": "Compute Utilization by GPU",
+      "title": "Tensor Active by GPU",
       "type": "timeseries"
     },
     {
